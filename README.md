@@ -5,7 +5,7 @@
 #### Current Features
 * Prints database of songs to stdout
 * Keeps track of which songs are playing and how long they have been playing
-* Allows for easy configuration of mpd and mongodb ports in the config file (~/.config/mpdtrackr/config.json on Linux or %appdata%\mpdtrackr\config.json on Windows)
+* Allows for easy configuration of mpd and mongodb ports in the config file (~/.config/mpdtrackr/config.json on Linux or %appdata%\mpdtrackr\config.json on Windows (probably won't work on windows tho))
 
 #### Planned Features
 * Import/Export databases to help keep track across devices
