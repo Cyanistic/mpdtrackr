@@ -77,10 +77,9 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
             },
             _ => ()
         }
-        let mut old_time = 0;
-        while title == song.title.clone().unwrap(){
+        let mut old_time = current_time;
+        while title == mpd_client.currentsong().unwrap().unwrap().title.clone().unwrap(){
             current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
-            println!("{:?} {:?} {:?}", current_time, duration, artist);
             sleep(Duration::from_millis(999));
             if old_time + 1 <= current_time{
                 mongo_artists.update_one(doc!{"artist": artist}, doc!{"$inc": {"time": 1}} , None).await.unwrap();
