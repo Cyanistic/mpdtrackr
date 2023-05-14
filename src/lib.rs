@@ -1,9 +1,10 @@
-use futures::stream::{StreamExt, TryStreamExt};
+use futures::stream::TryStreamExt;
 use json::*;
 use mongodb::bson::{doc, Document};
-use mongodb::{options::FindOptions, Client as MongoClient, Cursor};
+use mongodb::{options::FindOptions, Client as MongoClient};
 use mpd::Client as MPDClient;
 use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::thread::sleep;
 use std::{io::Write, time::Duration};
@@ -41,35 +42,104 @@ pub fn create_config() {
     };
 }
 
-pub async fn import(mongo_client: MongoClient, files: Vec<String>){
+pub async fn import(mongo_client: MongoClient, files: Vec<String>) {
     let db = mongo_client.database("mpdtrackr");
-    
+    for i in files {
+        let path = Path::new(&i);
+        let mut file = File::open(path).unwrap();
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+        let json: JsonValue = json::parse(&contents).unwrap();
+        let collection_name = path
+            .file_name()
+            .expect("Could not get file name")
+            .to_str()
+            .expect("Could not convert file name to string")
+            .replace(".json", "");
+        let collection = db.collection::<Document>(&collection_name);
+        for i in json.members() {
+            if collection_name == "artists" {
+                match collection
+                    .find_one(doc! { "artist": i["artist"].as_str() }, None)
+                    .await
+                    .unwrap()
+                {
+                    Some(_) => {
+                        collection
+                            .update_one(
+                                doc! {"artist": i["artist"].as_str().unwrap()},
+                                doc! { "$inc": { "time": i["time"].as_i32().unwrap()  }},
+                                None,
+                            )
+                            .await
+                            .unwrap();
+                    }
+                    None => {
+                        collection.insert_one(doc! {"artist": i["artist"].as_str().unwrap(), "artist": i["artist"].as_str().unwrap(), "time": i["time"].as_i32().unwrap()}, None).await.unwrap();
+                        ()
+                    }
+                }
+            } else {
+                match collection
+                    .find_one(doc! { "title": i["title"].as_str() }, None)
+                    .await
+                    .unwrap()
+                {
+                    Some(_) => {
+                        collection
+                            .update_one(
+                                doc! {"title": i["title"].as_str().unwrap()},
+                                doc! { "$inc": { "time": i["time"].as_i32().unwrap() }},
+                                None,
+                            )
+                            .await
+                            .unwrap();
+                    }
+                    None => {
+                        collection.insert_one(doc! {"title": i["title"].as_str().unwrap(), "artist": i["artist"].as_str().unwrap(), "time": i["time"].as_i32().unwrap()}, None).await.unwrap();
+                        ()
+                    }
+                }
+            }
+        }
+    }
 }
 
-pub async fn output(mongo_client: MongoClient, dirs: Vec<String>){
+pub async fn output(mongo_client: MongoClient, dirs: Vec<String>) {
     let db = mongo_client.database("mpdtrackr");
     let find_options = FindOptions::builder()
         .sort(doc! {"time": -1})
         .projection(doc! {"_id": 0})
         .build();
-    for i in dirs{
+    for i in dirs {
         for collection_name in db.list_collection_names(None).await.unwrap() {
-        let mut cursor = db
-            .collection::<Document>(collection_name.as_str())
-            .find(None, find_options.clone())
-            .await
+            let mut cursor = db
+                .collection::<Document>(collection_name.as_str())
+                .find(None, find_options.clone())
+                .await
+                .unwrap();
+            let mut file = File::create(Path::new(&format!("{i}/{collection_name}.json"))).unwrap();
+            file.write_all("[\n".as_bytes()).unwrap();
+            file.write_all(
+                cursor
+                    .try_next()
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .to_string()
+                    .as_bytes(),
+            )
             .unwrap();
-        let mut file = File::create(Path::new(&format!("{i}/{collection_name}.json"))).unwrap();
-            file.write_all("{\n".as_bytes()).unwrap();
-        while let Some(item) = cursor.try_next().await.unwrap() {
-            file.write_all((item.to_string() + ",\n").as_bytes()).unwrap();
+            while let Some(item) = cursor.try_next().await.unwrap() {
+                file.write_all((",\n".to_string() + item.to_string().as_str()).as_bytes())
+                    .unwrap();
+            }
+            file.write_all("]".as_bytes()).unwrap();
         }
-        file.write_all("}".as_bytes()).unwrap();
-    }
     }
 }
 
-pub async fn print(mongo_client: MongoClient){
+pub async fn print(mongo_client: MongoClient) {
     let db = mongo_client.database("mpdtrackr");
     let find_options = FindOptions::builder()
         .sort(doc! {"time": -1})
@@ -92,10 +162,7 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
     let mongo_artists = db.collection::<Document>("artists");
     let mongo_songs = db.collection::<Document>("songs");
     loop {
-        let (mut current_time, duration) = (
-            mpd_client.status().unwrap().time.unwrap().0.num_seconds(),
-            mpd_client.status().unwrap().time.unwrap().1.num_seconds(),
-        );
+        let mut current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
         let song = mpd_client.currentsong().unwrap().unwrap();
         let artist = song.tags.get("Artist").unwrap();
         let title = song.title.clone().unwrap().clone();

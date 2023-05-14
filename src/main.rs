@@ -15,7 +15,7 @@ pub struct Args {
     /// Import collections from files (ex: artists.json will be imported into into the "artists"
     /// collection)
     /// Files must be in .json format and have the .json extension to be properly imported.
-    #[arg(short, long)]
+    #[arg(short, long, num_args = 0..)]
     import: Option<Vec<String>>,
 
     /// Print the database to stdout
@@ -23,7 +23,7 @@ pub struct Args {
     print: bool,
 
     /// Directories to output the database to. Output files will be in .json format
-    #[arg(short, long)]
+    #[arg(short, long, num_args = 0..)]
     output: Option<Vec<String>>,
 }
 
