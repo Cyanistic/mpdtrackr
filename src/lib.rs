@@ -36,10 +36,7 @@ pub fn create_config() {
             .open(config_file_path)
             .unwrap(),
     };
-    match config.write_all("{\n \"mongo_port\": 27017,\n \"mpd_port\": 6600\n}".as_bytes()) {
-        Ok(_) => (),
-        Err(e) => println!("{}", e),
-    };
+    config.write_all("{\n \"mongo_port\": 27017,\n \"mpd_port\": 6600\n}".as_bytes()).unwrap();
 }
 
 pub async fn import(mongo_client: MongoClient, files: Vec<String>) {
@@ -166,33 +163,29 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
         let song = mpd_client.currentsong().unwrap().unwrap();
         let artist = song.tags.get("Artist").unwrap();
         let title = song.title.clone().unwrap().clone();
-        match mongo_artists
+        if mongo_artists
             .find_one(doc! {"artist": artist}, None)
             .await
             .unwrap()
-        {
-            None => {
+            .is_none()
+            {
                 mongo_artists
                     .insert_one(doc! {"artist": artist, "time": 0}, None)
                     .await
                     .unwrap();
                 ()
             }
-            _ => (),
-        }
-        match mongo_songs
+        if mongo_songs
             .find_one(doc! {"title": &title}, None)
             .await
             .unwrap()
+            .is_none()
         {
-            None => {
                 mongo_songs
                     .insert_one(doc! {"title": &title, "artist": artist, "time": 0}, None)
                     .await
                     .unwrap();
                 ()
-            }
-            _ => (),
         }
         let mut old_time = current_time;
         while title
