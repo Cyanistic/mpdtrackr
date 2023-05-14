@@ -41,11 +41,35 @@ pub fn create_config() {
     };
 }
 
-pub fn import(mongo_client: MongoClient, files: Vec<String>) {}
+pub async fn import(mongo_client: MongoClient, files: Vec<String>){
+    let db = mongo_client.database("mpdtrackr");
+    
+}
 
-pub fn output(mongo_client: MongoClient, files: Vec<String>) {}
+pub async fn output(mongo_client: MongoClient, dirs: Vec<String>){
+    let db = mongo_client.database("mpdtrackr");
+    let find_options = FindOptions::builder()
+        .sort(doc! {"time": -1})
+        .projection(doc! {"_id": 0})
+        .build();
+    for i in dirs{
+        for collection_name in db.list_collection_names(None).await.unwrap() {
+        let mut cursor = db
+            .collection::<Document>(collection_name.as_str())
+            .find(None, find_options.clone())
+            .await
+            .unwrap();
+        let mut file = File::create(Path::new(&format!("{i}/{collection_name}.json"))).unwrap();
+            file.write_all("{\n".as_bytes()).unwrap();
+        while let Some(item) = cursor.try_next().await.unwrap() {
+            file.write_all((item.to_string() + ",\n").as_bytes()).unwrap();
+        }
+        file.write_all("}".as_bytes()).unwrap();
+    }
+    }
+}
 
-pub async fn print(mongo_client: MongoClient) {
+pub async fn print(mongo_client: MongoClient){
     let db = mongo_client.database("mpdtrackr");
     let find_options = FindOptions::builder()
         .sort(doc! {"time": -1})

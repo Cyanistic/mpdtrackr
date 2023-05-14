@@ -10,8 +10,11 @@ mod lib;
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about)]
 /// Program that tracks mpd listening time on a per artist and per song basis
+/// Note: running with more than one argument at a time will result in only one being executed
 pub struct Args {
-    /// Import database from files
+    /// Import collections from files (ex: artists.json will be imported into into the "artists"
+    /// collection)
+    /// Files must be in .json format and have the .json extension to be properly imported.
     #[arg(short, long)]
     import: Option<Vec<String>>,
 
@@ -19,7 +22,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = false)]
     print: bool,
 
-    /// Files to output the database to
+    /// Directories to output the database to. Output files will be in .json format
     #[arg(short, long)]
     output: Option<Vec<String>>,
 }
@@ -68,12 +71,12 @@ async fn main() {
             import: Some(files),
             output: _,
             print: _,
-        } => lib::import(mongo_client, files),
+        } => lib::import(mongo_client, files).await,
         Args {
             import: _,
             output: Some(files),
             print: _,
-        } => lib::output(mongo_client, files),
+        } => lib::output(mongo_client, files).await,
         Args {
             import: _,
             output: _,
