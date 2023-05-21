@@ -20,8 +20,7 @@ pub fn create_config_dir() {
 
 pub fn create_config() {
     let dir = dirs::config_dir().unwrap().display().to_string() + "/mpdtrackr";
-    let config_file_dir =
-        dirs::config_dir().unwrap().display().to_string() + "/mpdtrackr/config.json";
+    let config_file_dir = format!("{}/config.json", &dir);
     let config_dir = Path::new(&dir);
     let config_file_path = Path::new(&config_file_dir);
     match config_dir.is_dir() {
@@ -36,7 +35,9 @@ pub fn create_config() {
             .open(config_file_path)
             .unwrap(),
     };
-    config.write_all("{\n \"mongo_port\": 27017,\n \"mpd_port\": 6600\n}".as_bytes()).unwrap();
+    config
+        .write_all("{\n \"mongo_port\": 27017,\n \"mpd_port\": 6600\n}".as_bytes())
+        .unwrap();
 }
 
 pub async fn import(mongo_client: MongoClient, files: Vec<String>) {
@@ -136,6 +137,24 @@ pub async fn output(mongo_client: MongoClient, dirs: Vec<String>) {
     }
 }
 
+pub fn parse_artist(file_name: &String) -> &str{
+    match file_name.find("-"){
+        Some(k) => &file_name[..k].trim(),
+        None => &file_name
+    }
+}
+
+pub fn parse_title(file_name: String) -> String{
+    let end = match file_name.rfind("."){
+        Some(k) => k,
+        None => file_name.len()
+    };
+    match file_name.find("-"){
+        Some(k) => file_name[k+1..end].trim().to_string(),
+        None => file_name[..end].to_string()
+    }
+}
+
 pub async fn print(mongo_client: MongoClient) {
     let db = mongo_client.database("mpdtrackr");
     let find_options = FindOptions::builder()
@@ -161,41 +180,52 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
     loop {
         let mut current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
         let song = mpd_client.currentsong().unwrap().unwrap();
-        let artist = song.tags.get("Artist").unwrap();
-        let title = song.title.clone().unwrap().clone();
+        let artist = match song.tags.get("Artist"){
+            Some(k) => k,
+            None => parse_artist(&song.file)
+        };
+        let title = match song.title.clone(){
+           Some(k) => k.clone(),
+            None => parse_title(song.file.to_string())
+        };
         if mongo_artists
             .find_one(doc! {"artist": artist}, None)
             .await
             .unwrap()
             .is_none()
-            {
-                mongo_artists
-                    .insert_one(doc! {"artist": artist, "time": 0}, None)
-                    .await
-                    .unwrap();
-                ()
-            }
+        {
+            mongo_artists
+                .insert_one(doc! {"artist": artist, "time": 0}, None)
+                .await
+                .unwrap();
+        }
         if mongo_songs
             .find_one(doc! {"title": &title}, None)
             .await
             .unwrap()
             .is_none()
         {
-                mongo_songs
-                    .insert_one(doc! {"title": &title, "artist": artist, "time": 0}, None)
-                    .await
-                    .unwrap();
-                ()
+            mongo_songs
+                .insert_one(doc! {"title": &title, "artist": artist, "time": 0}, None)
+                .await
+                .unwrap();
         }
         let mut old_time = current_time;
         while title
-            == mpd_client
+            == match mpd_client
                 .currentsong()
                 .unwrap()
                 .unwrap()
                 .title
-                .clone()
+                .clone(){
+                Some(k) => k,
+                None => parse_title(mpd_client
+                .currentsong()
                 .unwrap()
+                .unwrap()
+                .file.to_string())
+            }
+                
         {
             current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
             sleep(Duration::from_millis(999));
