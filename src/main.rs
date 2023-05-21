@@ -5,7 +5,7 @@ use mpd::Client as MPDClient;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
-mod lib;
+use mpdtrackr::*;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about)]
@@ -36,7 +36,7 @@ async fn main() {
     let mut config_file = match File::open(&config_file_dir) {
         Ok(k) => k,
         Err(_) => {
-            lib::create_config();
+            create_config();
             File::open(&config_file_dir).unwrap()
         }
     };
@@ -47,7 +47,7 @@ async fn main() {
     let config = match parse(config_file_contents.as_str()) {
         Ok(k) => k,
         Err(_) => {
-            lib::create_config();
+            create_config();
             match parse(config_file_contents.as_str()) {
                 Ok(k) => k,
                 Err(e) => {
@@ -71,17 +71,17 @@ async fn main() {
             import: Some(files),
             output: _,
             print: _,
-        } => lib::import(mongo_client, files).await,
+        } => import(mongo_client, files).await,
         Args {
             import: _,
             output: Some(files),
             print: _,
-        } => lib::output(mongo_client, files).await,
+        } => output(mongo_client, files).await,
         Args {
             import: _,
             output: _,
             print: true,
-        } => lib::print(mongo_client).await,
-        _ => lib::run(mongo_client, mpd_client, config).await,
+        } => print(mongo_client).await,
+        _ => run(mongo_client, mpd_client, config).await,
     }
 }
