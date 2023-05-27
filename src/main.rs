@@ -57,13 +57,13 @@ async fn main() {
             }
         }
     };
-
     let mongo_client_options = ClientOptions::parse(format!(
         "{}{}",
         "mongodb://localhost:", config["mongo_port"]
     ))
     .await
     .unwrap();
+
     let mongo_client = MongoClient::with_options(mongo_client_options).unwrap();
     let mpd_client = MPDClient::connect(format!("{}{}", "localhost:", config["mpd_port"])).unwrap();
     match args {

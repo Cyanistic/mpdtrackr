@@ -138,9 +138,15 @@ pub async fn output(mongo_client: MongoClient, dirs: Vec<String>) {
 }
 
 pub fn parse_artist(file_name: &String) -> &str{
-    match file_name.find("-"){
-        Some(k) => &file_name[..k].trim(),
-        None => &file_name
+    let mut start = 0;
+    if let Some(k) = file_name.rfind('/'){
+        start = k+1;
+    } else if let Some(k) = file_name.rfind('\\'){
+        start = k+1;
+    }
+    match file_name.get(start..).unwrap().find("-"){
+        Some(k) => &file_name[start..start+k].trim(),
+        None => &file_name[start..].trim()
     }
 }
 
