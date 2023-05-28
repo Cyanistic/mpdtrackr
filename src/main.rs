@@ -65,7 +65,7 @@ async fn main() {
     .unwrap();
 
     let mongo_client = MongoClient::with_options(mongo_client_options).unwrap();
-    let mpd_client = MPDClient::connect(format!("{}{}", "localhost:", config["mpd_port"])).unwrap();
+    let mpd_client = MPDClient::connect(format!("{}{}", "localhost:", config["mpd_port"])).expect("Could not connect to mpd.\nDo you have an active mpd connection?");
     match args {
         Args {
             import: Some(files),

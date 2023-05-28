@@ -184,6 +184,12 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
     let mongo_artists = db.collection::<Document>("artists");
     let mongo_songs = db.collection::<Document>("songs");
     loop {
+        while match mpd_client.status().unwrap().time{
+            None => true,
+            _ => false
+        }{
+            ()
+        }
         let mut current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
         let song = mpd_client.currentsong().unwrap().unwrap();
         let artist = match song.tags.get("Artist"){
@@ -233,7 +239,10 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
             }
                 
         {
-            current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
+            current_time = match mpd_client.status().unwrap().time{
+                Some(k) => k.0.num_seconds(),
+                None => break
+            };
             sleep(Duration::from_millis(999));
             if old_time + 1 <= current_time {
                 mongo_artists
