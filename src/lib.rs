@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub fn create_config_dir() {
+fn create_config_dir() {
     match std::fs::create_dir_all(Path::new(
         &(dirs::config_dir().unwrap().display().to_string() + "/mpdtrackr"),
     )) {
@@ -77,7 +77,6 @@ pub async fn import(mongo_client: MongoClient, files: Vec<String>) {
                     }
                     None => {
                         collection.insert_one(doc! {"artist": i["artist"].as_str().unwrap(), "artist": i["artist"].as_str().unwrap(), "time": i["time"].as_i32().unwrap()}, None).await.unwrap();
-                        ()
                     }
                 }
             } else {
@@ -98,7 +97,6 @@ pub async fn import(mongo_client: MongoClient, files: Vec<String>) {
                     }
                     None => {
                         collection.insert_one(doc! {"title": i["title"].as_str().unwrap(), "artist": i["artist"].as_str().unwrap(), "time": i["time"].as_i32().unwrap()}, None).await.unwrap();
-                        ()
                     }
                 }
             }
@@ -140,25 +138,25 @@ pub async fn output(mongo_client: MongoClient, dirs: Vec<String>) {
     }
 }
 
-pub fn parse_artist(file_name: &String) -> &str {
+fn parse_artist(file_name: &str) -> &str {
     let mut start = 0;
     if let Some(k) = file_name.rfind('/') {
         start = k + 1;
     } else if let Some(k) = file_name.rfind('\\') {
         start = k + 1;
     }
-    match file_name.get(start..).unwrap().find("-") {
-        Some(k) => &file_name[start..start + k].trim(),
-        None => &file_name[start..].trim(),
+    match file_name.get(start..).unwrap().find('-') {
+        Some(k) => file_name[start..start + k].trim(),
+        None => file_name[start..].trim(),
     }
 }
 
-pub fn parse_title(file_name: String) -> String {
-    let end = match file_name.rfind(".") {
+fn parse_title(file_name: String) -> String {
+    let end = match file_name.rfind('.') {
         Some(k) => k,
         None => file_name.len(),
     };
-    match file_name.find("-") {
+    match file_name.find('-') {
         Some(k) => file_name[k + 1..end].trim().to_string(),
         None => file_name[..end].to_string(),
     }
@@ -195,11 +193,7 @@ pub async fn run(
         println!("mptrackr started");
     }
     loop {
-        while match mpd_client.status().unwrap().time {
-            None => true,
-            _ => false,
-        } {
-            ()
+        while matches!(mpd_client.status().unwrap().time, None){
         }
         let mut current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
         let song = mpd_client.currentsong().unwrap().unwrap();
@@ -272,7 +266,7 @@ pub async fn run(
             let elapsed = start_time.elapsed();
             let remaining = Duration::from_secs(1) - elapsed;
             sleep(remaining);
-            if old_time + 1 <= current_time {
+            if old_time < current_time {
                 mongo_artists
                     .update_one(doc! {"artist": artist}, doc! {"$inc": {"time": 1}}, None)
                     .await

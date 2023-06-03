@@ -37,11 +37,11 @@ async fn main() {
     let config_file_dir_literal =
         dirs::config_dir().unwrap().to_str().unwrap().to_string() + "/mpdtrackr/config.json";
     let config_file_dir = Path::new(&config_file_dir_literal);
-    let mut config_file = match File::open(&config_file_dir) {
+    let mut config_file = match File::open(config_file_dir) {
         Ok(k) => k,
         Err(_) => {
             create_config();
-            File::open(&config_file_dir).unwrap()
+            File::open(config_file_dir).unwrap()
         }
     };
     let mut config_file_contents = String::new();
