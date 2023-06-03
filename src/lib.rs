@@ -7,7 +7,10 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 use std::thread::sleep;
-use std::{io::Write, time::Duration};
+use std::{
+    io::Write,
+    time::{Duration, Instant},
+};
 
 pub fn create_config_dir() {
     match std::fs::create_dir_all(Path::new(
@@ -137,27 +140,27 @@ pub async fn output(mongo_client: MongoClient, dirs: Vec<String>) {
     }
 }
 
-pub fn parse_artist(file_name: &String) -> &str{
+pub fn parse_artist(file_name: &String) -> &str {
     let mut start = 0;
-    if let Some(k) = file_name.rfind('/'){
-        start = k+1;
-    } else if let Some(k) = file_name.rfind('\\'){
-        start = k+1;
+    if let Some(k) = file_name.rfind('/') {
+        start = k + 1;
+    } else if let Some(k) = file_name.rfind('\\') {
+        start = k + 1;
     }
-    match file_name.get(start..).unwrap().find("-"){
-        Some(k) => &file_name[start..start+k].trim(),
-        None => &file_name[start..].trim()
+    match file_name.get(start..).unwrap().find("-") {
+        Some(k) => &file_name[start..start + k].trim(),
+        None => &file_name[start..].trim(),
     }
 }
 
-pub fn parse_title(file_name: String) -> String{
-    let end = match file_name.rfind("."){
+pub fn parse_title(file_name: String) -> String {
+    let end = match file_name.rfind(".") {
         Some(k) => k,
-        None => file_name.len()
+        None => file_name.len(),
     };
-    match file_name.find("-"){
-        Some(k) => file_name[k+1..end].trim().to_string(),
-        None => file_name[..end].to_string()
+    match file_name.find("-") {
+        Some(k) => file_name[k + 1..end].trim().to_string(),
+        None => file_name[..end].to_string(),
     }
 }
 
@@ -179,26 +182,46 @@ pub async fn print(mongo_client: MongoClient) {
     }
 }
 
-pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: JsonValue) {
+pub async fn run(
+    mongo_client: MongoClient,
+    mut mpd_client: MPDClient,
+    config: JsonValue,
+    logging: bool,
+) {
     let db = mongo_client.database("mpdtrackr");
     let mongo_artists = db.collection::<Document>("artists");
     let mongo_songs = db.collection::<Document>("songs");
+    if logging {
+        println!("mptrackr started");
+    }
     loop {
-        while match mpd_client.status().unwrap().time{
+        while match mpd_client.status().unwrap().time {
             None => true,
-            _ => false
-        }{
+            _ => false,
+        } {
             ()
         }
         let mut current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
         let song = mpd_client.currentsong().unwrap().unwrap();
-        let artist = match song.tags.get("Artist"){
+        let artist = match song.tags.get("Artist") {
             Some(k) => k,
-            None => parse_artist(&song.file)
+            None => {
+                if logging {
+                    println!("Could not get artrsist name from mpd, parsing artist name from filename...");
+                }
+                parse_artist(&song.file)
+            }
         };
-        let title = match song.title.clone(){
-           Some(k) => k.clone(),
-            None => parse_title(song.file.to_string())
+        let title = match song.title.clone() {
+            Some(k) => k.clone(),
+            None => {
+                if logging {
+                    println!(
+                        "Could not get song name from mpd, parsing song name from filename..."
+                    );
+                }
+                parse_title(song.file.to_string())
+            }
         };
         if mongo_artists
             .find_one(doc! {"artist": artist}, None)
@@ -210,6 +233,12 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
                 .insert_one(doc! {"artist": artist, "time": 0}, None)
                 .await
                 .unwrap();
+            if logging {
+                println!(
+                    "New artist: \"{}\" inserted into artists collection",
+                    artist
+                );
+            }
         }
         if mongo_songs
             .find_one(doc! {"title": &title}, None)
@@ -221,42 +250,48 @@ pub async fn run(mongo_client: MongoClient, mut mpd_client: MPDClient, config: J
                 .insert_one(doc! {"title": &title, "artist": artist, "time": 0}, None)
                 .await
                 .unwrap();
+            if logging {
+                println!(
+                    "New song: \"{} - {}\" inserted into songs collection",
+                    artist, title,
+                );
+            }
         }
         let mut old_time = current_time;
+        let mut start_time = Instant::now();
         while title
-            == match mpd_client
-                .currentsong()
-                .unwrap()
-                .unwrap()
-                .title
-                .clone(){
+            == match mpd_client.currentsong().unwrap().unwrap().title.clone() {
                 Some(k) => k,
-                None => parse_title(mpd_client
-                .currentsong()
-                .unwrap()
-                .unwrap()
-                .file.to_string())
+                None => parse_title(mpd_client.currentsong().unwrap().unwrap().file.to_string()),
             }
-                
         {
-            current_time = match mpd_client.status().unwrap().time{
+            current_time = match mpd_client.status().unwrap().time {
                 Some(k) => k.0.num_seconds(),
-                None => break
+                None => break,
             };
-            sleep(Duration::from_millis(999));
+            let elapsed = start_time.elapsed();
+            let remaining = Duration::from_secs(1) - elapsed;
+            sleep(remaining);
             if old_time + 1 <= current_time {
                 mongo_artists
                     .update_one(doc! {"artist": artist}, doc! {"$inc": {"time": 1}}, None)
                     .await
                     .unwrap();
+                if logging {
+                    println!("Artist: \"{}\" time incremented by 1", artist);
+                }
                 mongo_songs
                     .update_one(doc! {"title": &title}, doc! {"$inc": {"time": 1}}, None)
                     .await
                     .unwrap();
+                if logging {
+                    println!("Song: \"{} - {}\" time incremented by 1", artist, title);
+                }
                 old_time = current_time;
             } else if old_time > current_time {
                 old_time = current_time;
             }
+            start_time = Instant::now();
         }
     }
 }

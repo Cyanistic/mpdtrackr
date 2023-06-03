@@ -18,6 +18,10 @@ pub struct Args {
     #[arg(short, long, num_args = 0..)]
     import: Option<Vec<String>>,
 
+    /// Run the tracker while printing logs to stdout
+    #[arg(short, long, default_value_t = false)]
+    logging: bool,
+
     /// Print the database to stdout
     #[arg(short, long, default_value_t = false)]
     print: bool,
@@ -69,19 +73,22 @@ async fn main() {
     match args {
         Args {
             import: Some(files),
+            logging: _,
             output: _,
             print: _,
         } => import(mongo_client, files).await,
         Args {
             import: _,
+            logging: _,
             output: Some(files),
             print: _,
         } => output(mongo_client, files).await,
         Args {
             import: _,
+            logging: _,
             output: _,
             print: true,
         } => print(mongo_client).await,
-        _ => run(mongo_client, mpd_client, config).await,
+        _ => run(mongo_client, mpd_client, config, args.logging).await,
     }
 }
