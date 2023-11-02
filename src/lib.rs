@@ -3,7 +3,7 @@ use json::*;
 use mongodb::bson::{doc, Document};
 use mongodb::{options::FindOptions, Client as MongoClient};
 use mpd::Client as MPDClient;
-use std::fs::File;
+use std::fs::{File, create_dir_all};
 use std::io::Read;
 use std::path::Path;
 use std::thread::sleep;
@@ -11,45 +11,31 @@ use std::{
     io::Write,
     time::{Duration, Instant},
 };
+use anyhow::{Result, anyhow};
 
-fn create_config_dir() {
-    match std::fs::create_dir_all(Path::new(
-        &(dirs::config_dir().unwrap().display().to_string() + "/mpdtrackr"),
-    )) {
-        Ok(k) => k,
-        Err(e) => println!("Could not create config directory: {}", e),
-    };
-}
-
-pub fn create_config() {
-    let dir = dirs::config_dir().unwrap().display().to_string() + "/mpdtrackr";
-    let config_file_dir = format!("{}/config.json", &dir);
-    let config_dir = Path::new(&dir);
-    let config_file_path = Path::new(&config_file_dir);
-    match config_dir.is_dir() {
-        false => create_config_dir(),
-        true => (),
-    };
+pub fn create_config() -> Result<()>{
+    let config_dir = dirs::config_dir().unwrap().join("mpdtrackr");
+    let config_file_path = config_dir.join("config.json");
+    if !config_dir.is_dir() {
+        create_dir_all(&config_dir)?;
+    }
     let mut config = match config_file_path.is_file() {
-        false => File::create(config_file_path).unwrap(),
+        false => File::create(config_file_path)?,
         true => File::options()
             .read(true)
             .write(true)
             .open(config_file_path)
-            .unwrap(),
+            ?,
     };
     config
-        .write_all("{\n \"mongo_port\": 27017,\n \"mpd_port\": 6600\n}".as_bytes())
-        .unwrap();
+        .write_all("{\n \"mongo_port\": 27017,\n \"mpd_port\": 6600\n}".as_bytes()).map_err(|e| anyhow!(e))
 }
 
 pub async fn import(mongo_client: MongoClient, files: Vec<String>) {
     let db = mongo_client.database("mpdtrackr");
     for i in files {
         let path = Path::new(&i);
-        let mut file = File::open(path).unwrap();
-        let mut contents = String::new();
-        file.read_to_string(&mut contents).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
         let json: JsonValue = json::parse(&contents).unwrap();
         let collection_name = path
             .file_name()
@@ -145,20 +131,21 @@ fn parse_artist(file_name: &str) -> &str {
     } else if let Some(k) = file_name.rfind('\\') {
         start = k + 1;
     }
-    match file_name.get(start..).unwrap().find('-') {
-        Some(k) => file_name[start..start + k].trim(),
+    
+    match file_name[start..].chars().position(|x| x == '-') {
+        Some(k) => file_name[start..k].trim(),
         None => file_name[start..].trim(),
     }
 }
 
-fn parse_title(file_name: String) -> String {
+fn parse_title(file_name: &str) -> &str {
     let end = match file_name.rfind('.') {
         Some(k) => k,
         None => file_name.len(),
     };
     match file_name.find('-') {
-        Some(k) => file_name[k + 1..end].trim().to_string(),
-        None => file_name[..end].to_string(),
+        Some(k) => &file_name[k + 1..end].trim(),
+        None => &file_name[..end],
     }
 }
 
@@ -193,7 +180,7 @@ pub async fn run(
         println!("mptrackr started");
     }
     loop {
-        while matches!(mpd_client.status().unwrap().time, None){
+        while mpd_client.status().unwrap().time.is_none(){
         }
         let mut current_time = mpd_client.status().unwrap().time.unwrap().0.num_seconds();
         let song = mpd_client.currentsong().unwrap().unwrap();
@@ -206,15 +193,15 @@ pub async fn run(
                 parse_artist(&song.file)
             }
         };
-        let title = match song.title.clone() {
-            Some(k) => k.clone(),
+        let title = match &song.title {
+            Some(k) => k,
             None => {
                 if logging {
                     println!(
                         "Could not get song name from mpd, parsing song name from filename..."
                     );
                 }
-                parse_title(song.file.to_string())
+                parse_title(&song.file)
             }
         };
         if mongo_artists
@@ -254,9 +241,9 @@ pub async fn run(
         let mut old_time = current_time;
         let mut start_time = Instant::now();
         while title
-            == match mpd_client.currentsong().unwrap().unwrap().title.clone() {
+            == match mpd_client.currentsong().unwrap().unwrap().title {
                 Some(k) => k,
-                None => parse_title(mpd_client.currentsong().unwrap().unwrap().file.to_string()),
+                None => parse_title(&mpd_client.currentsong().unwrap().unwrap().file).to_string(),
             }
         {
             current_time = match mpd_client.status().unwrap().time {

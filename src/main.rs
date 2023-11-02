@@ -34,9 +34,8 @@ pub struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
-    let config_file_dir_literal =
-        dirs::config_dir().unwrap().to_str().unwrap().to_string() + "/mpdtrackr/config.json";
-    let config_file_dir = Path::new(&config_file_dir_literal);
+    let config_file_dir = 
+        &dirs::config_dir().unwrap().join("/mpdtrackr/config.json");
     let mut config_file = match File::open(config_file_dir) {
         Ok(k) => k,
         Err(_) => {
