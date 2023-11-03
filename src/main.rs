@@ -1,94 +1,225 @@
-use clap::Parser;
-use json::*;
-use mongodb::{options::ClientOptions, Client as MongoClient};
-use mpd::Client as MPDClient;
-use std::fs::File;
-use std::io::Read;
-use std::path::Path;
-use mpdtrackr::*;
+use std::{
+    cmp::Ordering,
+    collections::HashMap,
+    fs::{create_dir_all, File},
+    io::{Read, Write},
+    time::Duration,
+};
+
+use anyhow::{anyhow, Result};
+use clap::{Parser, Subcommand};
+use mpd::{Client, State};
+use tokio::time::Instant;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about)]
-/// Program that tracks mpd listening time on a per artist and per song basis
-/// Note: running with more than one argument at a time will result in only one being executed
-pub struct Args {
-    /// Import collections from files (ex: artists.json will be imported into into the "artists"
-    /// collection)
-    /// Files must be in .json format and have the .json extension to be properly imported.
-    #[arg(short, long, num_args = 0..)]
-    import: Option<Vec<String>>,
-
-    /// Run the tracker while printing logs to stdout
-    #[arg(short, long, default_value_t = false)]
-    logging: bool,
-
-    /// Print the database to stdout
-    #[arg(short, long, default_value_t = false)]
-    print: bool,
-
-    /// Directories to output the database to. Output files will be in .json format
-    #[arg(short, long, num_args = 0..)]
-    output: Option<Vec<String>>,
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    subcommand: SubCommand,
 }
 
+#[derive(Subcommand, Debug)]
+enum SubCommand {
+    Run,
+    Export {
+        #[arg(short, long)]
+        files: Vec<String>,
+    },
+    Import {
+        #[arg(short, long)]
+        files: Vec<String>,
+    },
+    Print {
+        #[arg(short, long)]
+        days: Option<usize>,
+        #[arg(short, long)]
+        weeks: Option<usize>,
+        #[arg(short, long)]
+        months: Option<usize>,
+        #[arg(short, long)]
+        years: Option<usize>,
+    },
+}
+
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
+    std::fs::create_dir_all(dirs::config_dir().unwrap().join(PKG_NAME))?;
+    let db_file = dirs::data_dir()
+        .unwrap()
+        .join(PKG_NAME)
+        .join(concat!(env!("CARGO_PKG_NAME"), ".db"));
+    if !db_file.exists() {
+        create_dir_all(db_file.parent().unwrap())?;
+        File::create(&db_file)?;
+    }
     let args = Args::parse();
-    let config_file_dir_literal =
-        dirs::config_dir().unwrap().to_str().unwrap().to_string() + "/mpdtrackr/config.json";
-    let config_file_dir = Path::new(&config_file_dir_literal);
-    let mut config_file = match File::open(config_file_dir) {
-        Ok(k) => k,
-        Err(_) => {
-            create_config();
-            File::open(config_file_dir).unwrap()
+    let pool = sqlx::sqlite::SqlitePool::connect_lazy(&format!("sqlite://{}", db_file.display()))?;
+
+    // create sqlite tables
+    sqlx::query(
+        r#"
+CREATE TABLE IF NOT EXISTS artists (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ name TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS songs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ title TEXT NOT NULL,
+ artist_id INTEGER,
+ album, TEXT
+ genre TEXT,
+ FOREIGN KEY (artist_id)
+    REFERENCES artists (id) 
+    ON UPDATE CASCADE
+    ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS listening_times (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ date DATE,
+ song_id INTEGER,
+ playback_time INTEGER NOT NULL,
+ FOREIGN KEY (song_id)
+    REFERENCES songs (id) 
+    ON UPDATE SET NULL
+    ON DELETE SET NULL
+);"#,
+    )
+    .execute(&pool)
+    .await?;
+
+    match args.subcommand {
+        SubCommand::Run => loop {
+            let _ = run(&pool).await.map_err(|e| eprintln!("Error: {}", e));
+            std::thread::sleep(Duration::from_secs(1));
+        },
+        SubCommand::Print {
+            days,
+            weeks,
+            months,
+            years,
+        } => print().await,
+        SubCommand::Export { files } => export(files).await,
+        SubCommand::Import { files } => import(files).await,
+    }
+    Ok(())
+}
+
+async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
+    let mut mpd = Client::connect(format!("127.0.0.1:{}", 6600))?;
+    'outer: loop {
+        let outer_song = mpd
+            .currentsong()?
+            .ok_or(anyhow!("Error: no song playing"))?;
+        let tags = HashMap::<String, String>::from_iter(outer_song.tags.clone());
+        let artist_id =
+            match sqlx::query!("SELECT * FROM artists WHERE name = $1", outer_song.artist)
+                .fetch_optional(pool)
+                .await?
+            {
+                Some(k) => k.id,
+                None => {
+                    sqlx::query("INSERT INTO artists VALUES ($1, $2)")
+                        .bind::<Option<&str>>(None)
+                        .bind(outer_song.artist.as_ref().unwrap())
+                        .execute(pool)
+                        .await?;
+                    continue;
+                }
+            };
+        let song_id = match sqlx::query!(
+            "SELECT id, title FROM songs WHERE title = $1",
+            outer_song.title
+        )
+        .fetch_optional(pool)
+        .await?
+        {
+            Some(k) => k.id,
+            None => {
+                let album = tags.get("Album").unwrap_or(&String::new()).clone();
+                let genre = tags.get("Genre").unwrap_or(&String::new()).clone();
+                sqlx::query!(
+                    "INSERT INTO songs VALUES ($1, $2, $3, $4, $5)",
+                    None::<u8>,
+                    outer_song.title,
+                    artist_id,
+                    album,
+                    genre
+                )
+                .execute(pool)
+                .await?;
+                continue;
+            }
+        };
+        let now = chrono::Local::now().date_naive();
+        if sqlx::query!(
+            "SELECT * from listening_times where date = $1 and song_id = $2",
+            now,
+            song_id
+        )
+        .fetch_optional(pool)
+        .await?
+        .is_none()
+        {
+            sqlx::query!(
+                "INSERT INTO listening_times VALUES ($1, $2, $3, $4)",
+                None::<u8>,
+                now,
+                song_id,
+                0
+            )
+            .execute(pool)
+            .await?;
         }
-    };
-    let mut config_file_contents = String::new();
-    config_file
-        .read_to_string(&mut config_file_contents)
-        .unwrap();
-    let config = match parse(config_file_contents.as_str()) {
-        Ok(k) => k,
-        Err(_) => {
-            create_config();
-            match parse(config_file_contents.as_str()) {
-                Ok(k) => k,
-                Err(e) => {
-                    println!("{}", e);
-                    panic!("Could not parse config file.")
+
+        let mut current_time = mpd
+            .status()?
+            .time
+            .ok_or(anyhow!("No time found on playing song"))?
+            .0;
+        let mut old_time = current_time;
+        'inner: loop {
+            let now = Instant::now();
+            match mpd.status()?.state {
+                State::Pause | State::Stop => tokio::time::sleep(Duration::from_millis(10)).await,
+                State::Play => {
+                    let inner_song = match mpd.currentsong()? {
+                        Some(k) => k,
+                        None => continue 'inner,
+                    };
+                    if outer_song == inner_song {
+                        current_time = mpd
+                            .status()?
+                            .time
+                            .ok_or(anyhow!("No time found on playing song"))?
+                            .0;
+                        match old_time.cmp(&current_time) {
+                            Ordering::Less => {
+                                sqlx::query!("UPDATE listening_times SET playback_time = playback_time + 1 WHERE song_id = $1", song_id).execute(pool).await?;
+                                old_time = current_time
+                            }
+                            Ordering::Greater => old_time = current_time,
+                            Ordering::Equal => (),
+                        }
+                        tokio::time::sleep(Duration::from_secs(1) - now.elapsed()).await
+                    } else {
+                        continue 'outer;
+                    }
                 }
             }
         }
-    };
-    let mongo_client_options = ClientOptions::parse(format!(
-        "{}{}",
-        "mongodb://localhost:", config["mongo_port"]
-    ))
-    .await
-    .unwrap();
-
-    let mongo_client = MongoClient::with_options(mongo_client_options).unwrap();
-    let mpd_client = MPDClient::connect(format!("{}{}", "localhost:", config["mpd_port"])).expect("Could not connect to mpd.\nDo you have an active mpd connection?");
-    match args {
-        Args {
-            import: Some(files),
-            logging: _,
-            output: _,
-            print: _,
-        } => import(mongo_client, files).await,
-        Args {
-            import: _,
-            logging: _,
-            output: Some(files),
-            print: _,
-        } => output(mongo_client, files).await,
-        Args {
-            import: _,
-            logging: _,
-            output: _,
-            print: true,
-        } => print(mongo_client).await,
-        _ => run(mongo_client, mpd_client, config, args.logging).await,
     }
+}
+
+async fn print() {
+    todo!()
+}
+
+async fn import(files: Vec<String>) {
+    todo!()
+}
+
+async fn export(files: Vec<String>) {
+    todo!()
 }
