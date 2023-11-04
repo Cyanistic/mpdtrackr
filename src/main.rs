@@ -3,50 +3,17 @@ use std::{
     collections::HashMap,
     fs::{create_dir_all, File},
     path::PathBuf,
-    sync::Mutex,
     time::Duration,
 };
 
 use anyhow::{anyhow, Result};
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use fs2::FileExt;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use mpd::{Client, State};
+use mpdtrackr::structs::{Args, GroupBy, SubCommand, DataRow};
+use sqlx::SqlitePool;
 use tokio::time::Instant;
-
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    #[command(subcommand)]
-    subcommand: SubCommand,
-}
-
-#[derive(Subcommand, Debug)]
-enum SubCommand {
-    Run,
-    Export {
-        #[arg(short, long)]
-        files: Vec<String>,
-    },
-    Import {
-        #[arg(short, long)]
-        files: Vec<String>,
-    },
-    Print {
-        #[arg(short, long)]
-        days: Option<usize>,
-        #[arg(short, long)]
-        weeks: Option<usize>,
-        #[arg(short, long)]
-        months: Option<usize>,
-        #[arg(short, long)]
-        years: Option<usize>,
-        #[arg(short, long)]
-        verbose: bool,
-        #[arg(short, long)]
-        json: bool,
-    },
-}
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -101,35 +68,7 @@ CREATE TABLE IF NOT EXISTS listening_times (
             let _ = run(&pool).await.map_err(|e| eprintln!("Error: {}", e));
             std::thread::sleep(Duration::from_secs(1));
         },
-        SubCommand::Print {
-            days,
-            weeks,
-            months,
-            years,
-            verbose,
-            json,
-        } => {
-            print(
-                &pool,
-                [days, weeks, months, years]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(k, v)| {
-                        v.unwrap_or(0)
-                            * match k {
-                                0 => 1,
-                                1 => 7,
-                                2 => 30,
-                                3 => 365,
-                                _ => 0,
-                            }
-                    })
-                    .sum(),
-                verbose,
-                json,
-            )
-            .await?
-        }
+        SubCommand::Print(args) => print(&pool, args).await?,
         SubCommand::Export { files } => export(files).await,
         SubCommand::Import { files } => import(files).await,
     }
@@ -186,8 +125,8 @@ async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
         {
             Some(k) => k.id,
             None => {
-                let album = tags.get("Album").unwrap_or(&String::new()).clone();
-                let genre = tags.get("Genre").unwrap_or(&String::new()).clone();
+                let album = tags.get("Album");
+                let genre = tags.get("Genre");
                 sqlx::query!(
                     "INSERT INTO songs VALUES ($1, $2, $3, $4, $5)",
                     None::<u8>,
@@ -245,12 +184,17 @@ async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
                             .0;
                         match old_time.cmp(&current_time) {
                             Ordering::Less => {
-                                sqlx::query!("UPDATE listening_times SET playback_time = playback_time + 1 WHERE song_id = $1 AND date = $2", song_id, date).execute(pool).await?;
+                                sqlx::query!("UPDATE listening_times SET playback_time = playback_time + 1 WHERE song_id = $1 AND date = $2", song_id, date)
+                                    .execute(pool)
+                                    .await?;
                                 old_time = current_time
                             }
                             Ordering::Greater => old_time = current_time,
                             Ordering::Equal => (),
                         }
+
+                        // Checked subtraction since it might panic in cases where looping
+                        // again takes longer than one second
                         tokio::time::sleep(
                             Duration::from_secs(1)
                                 .checked_sub(now.elapsed())
@@ -266,33 +210,67 @@ async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
     }
 }
 
-async fn print(pool: &sqlx::SqlitePool, days: usize, verbose: bool, json: bool) -> Result<()> {
-    match verbose {
-        true => {
-            let mut query = sqlx::query!("SELECT songs.*, artists.name AS artist, SUM(listening_times.playback_time) AS playback_time FROM songs INNER JOIN listening_times ON songs.id = listening_times.song_id INNER JOIN artists ON artists.id = songs.artist_id GROUP BY songs.id;").fetch(pool);
-            while let Some(entry) = query.next().await {
-                let entry = entry?;
-                let playback_time = format!(
-                    "{}h{}m{}s",
-                    &entry.playback_time / 3600,
-                    (&entry.playback_time % 3600) / 60,
-                    (&entry.playback_time % 60)
-                );
-                println!("{:?} {}", entry, playback_time);
-            }
-        }
-        false => {
-            let mut query = sqlx::query!("SELECT songs.title, artists.name AS artist, SUM(listening_times.playback_time) AS playback_time FROM songs INNER JOIN listening_times ON songs.id = listening_times.song_id INNER JOIN artists ON artists.id = songs.artist_id GROUP BY songs.id;").fetch(pool);
-            while let Some(entry) = query.next().await {
-                let entry = entry?;
-                let playback_time = format!(
-                    "{}h{}m{}s",
-                    &entry.playback_time / 3600,
-                    (&entry.playback_time % 3600) / 60,
-                    (&entry.playback_time % 60)
-                );
-                println!("{:?} {}", entry, playback_time);
-            }
+async fn print(pool: &sqlx::SqlitePool, command: mpdtrackr::structs::PrintArgs) -> Result<()> {
+    let sort_sequence = command
+        .sort
+        .iter()
+        .map(|x| x.to_string())
+        .reduce(|acc, x| acc + "," + &x)
+        .unwrap_or_default();
+    let query_str = match command.group.unwrap_or_default(){
+        GroupBy::AllTime => 
+format!("
+SELECT
+    songs.title as title,
+    songs.album as album,
+    songs.genre as genre,
+    songs.id as song_id,
+    artists.name as artist,
+    artists.id as artist_id,
+    MIN(listening_times.date) AS first_listened,
+    MAX(listening_times.date) AS last_listened,
+    SUM(listening_times.playback_time) as time,
+    listening_times.date as date
+FROM songs
+INNER JOIN listening_times
+ON songs.id = listening_times.song_id 
+INNER JOIN artists 
+ON artists.id = songs.artist_id
+GROUP BY song_id
+ORDER BY {sort_sequence}
+"),
+        group =>
+format!("
+SELECT
+    songs.title as title,
+    songs.album as album,
+    songs.genre as genre,
+    songs.id as song_id,
+    artists.name as artist,
+    artists.id as artist_id,
+    MIN(listening_times.date) AS first_listened,
+    MAX(listening_times.date) AS last_listened,
+    SUM(listening_times.playback_time) as time,
+    strftime('{group}', listening_times.date) AS date
+FROM songs
+INNER JOIN listening_times
+ON songs.id = listening_times.song_id 
+INNER JOIN artists 
+ON artists.id = songs.artist_id
+GROUP BY song_id, strftime('{}', date)
+ORDER BY {sort_sequence}
+", group.format_time())
+    };
+
+    let mut query = 
+        sqlx::query_as::<_, DataRow>(&query_str)
+        .fetch(pool);
+    while let Some(entry) = query.next().await{
+        let entry = entry?;
+        if command.json{
+            println!("{}",serde_json::to_string(&entry)?);
+        } else {
+            println!("{}", entry);
         }
     }
     Ok(())
@@ -305,3 +283,17 @@ async fn import(files: Vec<String>) {
 async fn export(files: Vec<String>) {
     todo!()
 }
+// [days, weeks, months, years]
+//     .into_iter()
+//     .enumerate()
+//     .map(|(k, v)| {
+//         v.unwrap_or(0)
+//             * match k {
+//                 0 => 1,
+//                 1 => 7,
+//                 2 => 30,
+//                 3 => 365,
+//                 _ => 0,
+//             }
+//     })
+//     .sum(),

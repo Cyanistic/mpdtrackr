@@ -4,3 +4,4 @@
 //     genre: &'a str,
 //     album: &'a str,
 // }
+pub mod structs;

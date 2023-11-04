@@ -9,8 +9,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-chrono = "0.4.31"
-clap = { version = "4.4.7", features = ['derive']}
+chrono = { version = "0.4.31", features = ['serde'] }
+clap = { version = "4.4.7", features = ['derive'] }
 dirs = "5.0.1"
 fs2 = "0.4.3"
 futures = "0.3.29"
