@@ -1,9 +1,9 @@
 * TODO
-  - ( ) Add sorting by last day, week, month, year, and all time
-  - ( ) Add date ranges such as between x and y or before z
-  - ( ) Add grouping functionality to group time by day, week, month, and year
+  - (x) Add sorting by last day, week, month, year, and all time
+  - (x) Add sorting by most listened, artist, album, and genre
+  - (x) Add date ranges such as between x and y or before z
+  - (x) Add grouping functionality to group time by day, week, month, and year
   - ( ) Add TUI interface
   - ( ) Add sync functionality between devices
   - ( ) Add service files to run on startup
   - ( ) Add logging support
-  - ( ) Add sorting by most listened, artist, album, and genre

@@ -56,25 +56,31 @@ pub enum SortBy {
 
 #[derive(Debug, Parser)]
 pub struct PrintArgs {
-    #[arg(short, long)]
-    pub days: Option<usize>,
-    #[arg(short, long)]
-    pub weeks: Option<usize>,
-    #[arg(short, long)]
-    pub months: Option<usize>,
-    #[arg(short, long)]
-    pub years: Option<usize>,
-    #[arg(short, long)]
-    /// Print extra information
-    pub verbose: bool,
-    #[arg(short, long)]
     /// Output data in json format
-    pub json: bool,
     #[arg(short, long)]
+    pub json: bool,
+    /// Only print stats between a start DATE and end DATE
+    /// Dates should be in Y-M-D format
+    // A tuple would be better for this but that doesn't work in clap yet
+    #[arg(
+        short = 'B',
+        long,
+        number_of_values = 2,
+        group = "range",
+        value_name("DATE")
+    )]
+    pub between: Option<Vec<chrono::NaiveDate>>,
+    /// Only print stats before DATE
+    #[arg(short = 'b', long, group = "range", value_name("DATE"))]
+    pub before: Option<chrono::NaiveDate>,
+    /// Only print stats after DATE
+    #[arg(short = 'a', long, group = "range", value_name("DATE"))]
+    pub after: Option<chrono::NaiveDate>,
     /// Group listening times by given time frame
+    #[arg(short, long, default_value = "all-time")]
     pub group: Option<GroupBy>,
-    #[arg(short, long, default_value = "time")]
     /// Sort entries by given option
+    #[arg(short, long, default_value = "time")]
     pub sort: Vec<SortBy>,
 }
 
@@ -114,15 +120,6 @@ pub struct DataRow {
     pub last_listened: chrono::NaiveDate,
     pub date: String,
 }
-
-// impl Display for GroupDurations{
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         match self{
-//             Self::Day =>
-//         }
-//     }
-// }
-//
 
 impl Display for DataRow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -175,15 +172,3 @@ impl Default for GroupBy {
         Self::AllTime
     }
 }
-
-// impl From<String> for GroupDurations {
-//     fn from(value: String) -> Self {
-//         match value.to_lowercase().as_str() {
-//             "-d" | "--day" | "days" => Self::Day,
-//             "-w" | "--week" | "weeks" => Self::Week,
-//             "-m" | "--month" | "months" => Self::Month,
-//             "-y" | "--year" | "years" => Self::Year,
-//             _ => Self::AllTime,
-//         }
-//     }
-// }

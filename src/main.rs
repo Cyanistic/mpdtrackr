@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fs::{create_dir_all, File},
     path::PathBuf,
-    time::Duration,
+    time::Duration, fmt::format,
 };
 
 use anyhow::{anyhow, Result};
@@ -217,9 +217,7 @@ async fn print(pool: &sqlx::SqlitePool, command: mpdtrackr::structs::PrintArgs) 
         .map(|x| x.to_string())
         .reduce(|acc, x| acc + "," + &x)
         .unwrap_or_default();
-    let query_str = match command.group.unwrap_or_default(){
-        GroupBy::AllTime => 
-format!("
+    let mut query_str = "
 SELECT
     songs.title as title,
     songs.album as album,
@@ -230,37 +228,44 @@ SELECT
     MIN(listening_times.date) AS first_listened,
     MAX(listening_times.date) AS last_listened,
     SUM(listening_times.playback_time) as time,
-    listening_times.date as date
+".to_string();
+    let new_str = match command.group.as_ref().expect("Default value set by clap"){
+        GroupBy::AllTime => 
+"
+listening_times.date as date
 FROM songs
 INNER JOIN listening_times
 ON songs.id = listening_times.song_id 
 INNER JOIN artists 
 ON artists.id = songs.artist_id
-GROUP BY song_id
-ORDER BY {sort_sequence}
-"),
+".to_string(),
         group =>
 format!("
-SELECT
-    songs.title as title,
-    songs.album as album,
-    songs.genre as genre,
-    songs.id as song_id,
-    artists.name as artist,
-    artists.id as artist_id,
-    MIN(listening_times.date) AS first_listened,
-    MAX(listening_times.date) AS last_listened,
-    SUM(listening_times.playback_time) as time,
-    strftime('{group}', listening_times.date) AS date
+strftime('{group}', listening_times.date) AS date
 FROM songs
 INNER JOIN listening_times
 ON songs.id = listening_times.song_id 
 INNER JOIN artists 
 ON artists.id = songs.artist_id
-GROUP BY song_id, strftime('{}', date)
-ORDER BY {sort_sequence}
-", group.format_time())
+")
     };
+    query_str += &new_str;
+
+    let range = match (command.after, command.before, command.between){
+        (Some(after), _, _) => format!("WHERE date > {} ", after),
+        (_, Some(before), _) => format!("WHERE date < {} ", before),
+        (_, _, Some(between)) => format!("WHERE date BETWEEN {} and {} ", between[0], between[1]),
+        (None, None, None) => String::new(),
+    };
+
+    query_str += &range;
+
+    let new_str = match command.group.as_ref().expect("Default value set by clap"){
+        GroupBy::AllTime => format!("GROUP BY song_id ORDER BY {sort_sequence}"),
+        group => format!("GROUP BY song_id, strftime('{}', date) ORDER BY {sort_sequence}", group.format_time())
+    };
+
+    query_str += &new_str;
 
     let mut query = 
         sqlx::query_as::<_, DataRow>(&query_str)
@@ -283,17 +288,3 @@ async fn import(files: Vec<String>) {
 async fn export(files: Vec<String>) {
     todo!()
 }
-// [days, weeks, months, years]
-//     .into_iter()
-//     .enumerate()
-//     .map(|(k, v)| {
-//         v.unwrap_or(0)
-//             * match k {
-//                 0 => 1,
-//                 1 => 7,
-//                 2 => 30,
-//                 3 => 365,
-//                 _ => 0,
-//             }
-//     })
-//     .sum(),
