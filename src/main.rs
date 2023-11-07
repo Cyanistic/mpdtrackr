@@ -35,7 +35,7 @@ pub struct Args {
 async fn main() {
     let args = Args::parse();
     let config_file_dir = 
-        &dirs::config_dir().unwrap().join("/mpdtrackr/config.json");
+        &dirs::config_dir().unwrap().join("mpdtrackr").join("config.json");
     let mut config_file = match File::open(config_file_dir) {
         Ok(k) => k,
         Err(_) => {
