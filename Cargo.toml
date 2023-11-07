@@ -4,6 +4,20 @@ authors = ["Cyanism"]
 description = "A simple MPD tracker"
 version = "1.2.0"
 edition = "2021"
+homepage = "https://github.com/Cyanistic/mpdtrackr"
+keywords = ["mpd", "tracking", "statistics"]
+license = "GPL-3.0"
+name = "mpdtrackr"
+readme = "README.md"
+repository = "https://github.com/Cyanistic/mpdtrackr"
+version = "2.0.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "unwind"
+strip = "symbols"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
