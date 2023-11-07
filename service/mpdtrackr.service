@@ -1,0 +1,9 @@
+[Unit]
+Description=MPD listening time tracker with versatile stats and sync
+After=mpd.target
+
+[Service]
+ExecStart=/usr/bin/mpdtrackr run
+
+[Install]
+WantedBy=default.target

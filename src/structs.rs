@@ -13,7 +13,7 @@ pub struct Args {
 
 #[derive(Subcommand, Debug)]
 pub enum SubCommand {
-    /// Run the mpdtrackr daemon.
+    /// Run the daemon.
     Run,
     /// Export data from the database
     Export {
@@ -94,7 +94,7 @@ impl Display for SortBy {
                 SortBy::Artist => "artists.name",
                 SortBy::Title => "songs.title",
                 SortBy::Genre => "songs.genre",
-                SortBy::Time => "listening_times.playback_time",
+                SortBy::Time => "time",
                 SortBy::Recent => "listening_times.date",
             }
         )

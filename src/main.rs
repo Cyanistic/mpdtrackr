@@ -1,9 +1,10 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
+    fmt::format,
     fs::{create_dir_all, File},
     path::PathBuf,
-    time::Duration, fmt::format,
+    time::Duration,
 };
 
 use anyhow::{anyhow, Result};
@@ -11,8 +12,8 @@ use clap::Parser;
 use fs2::FileExt;
 use futures::{StreamExt, TryStreamExt};
 use mpd::{Client, State};
-use mpdtrackr::structs::{Args, GroupBy, SubCommand, DataRow};
-use sqlx::SqlitePool;
+use mpdtrackr::structs::{Args, DataRow, GroupBy, PrintArgs, SubCommand};
+use sqlx::{Execute, QueryBuilder, Sqlite, SqlitePool};
 use tokio::time::Instant;
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -210,14 +211,15 @@ async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
     }
 }
 
-async fn print(pool: &sqlx::SqlitePool, command: mpdtrackr::structs::PrintArgs) -> Result<()> {
+async fn print(pool: &sqlx::SqlitePool, command: PrintArgs) -> Result<()> {
     let sort_sequence = command
         .sort
         .iter()
         .map(|x| x.to_string())
         .reduce(|acc, x| acc + "," + &x)
         .unwrap_or_default();
-    let mut query_str = "
+    let mut builder: QueryBuilder<Sqlite> = sqlx::QueryBuilder::new(
+        "
 SELECT
     songs.title as title,
     songs.album as album,
@@ -228,54 +230,63 @@ SELECT
     MIN(listening_times.date) AS first_listened,
     MAX(listening_times.date) AS last_listened,
     SUM(listening_times.playback_time) as time,
-".to_string();
-    let new_str = match command.group.as_ref().expect("Default value set by clap"){
-        GroupBy::AllTime => 
-"
+",
+    );
+    let new_str = match command.group.as_ref().expect("Default value set by clap") {
+        GroupBy::AllTime => builder.push(
+            "
 listening_times.date as date
 FROM songs
 INNER JOIN listening_times
 ON songs.id = listening_times.song_id 
 INNER JOIN artists 
 ON artists.id = songs.artist_id
-".to_string(),
-        group =>
-format!("
+",
+        ),
+        group => builder.push(format!(
+            "
 strftime('{group}', listening_times.date) AS date
 FROM songs
 INNER JOIN listening_times
 ON songs.id = listening_times.song_id 
 INNER JOIN artists 
 ON artists.id = songs.artist_id
-")
+"
+        )),
     };
-    query_str += &new_str;
+    // query_str += &new_str;
 
-    let range = match (command.after, command.before, command.between){
-        (Some(after), _, _) => format!("WHERE date > {} ", after),
-        (_, Some(before), _) => format!("WHERE date < {} ", before),
-        (_, _, Some(between)) => format!("WHERE date BETWEEN {} and {} ", between[0], between[1]),
+    builder.push(match (command.after, command.before, command.between) {
+        (Some(after), _, _) => format!("WHERE date > '{}' ", after),
+        (_, Some(before), _) => format!("WHERE date < '{}' ", before),
+        (_, _, Some(between)) => {
+            format!("WHERE date BETWEEN '{}' and '{}' ", between[0], between[1])
+        }
         (None, None, None) => String::new(),
-    };
+    });
 
-    query_str += &range;
+    // query_str += &range;
 
-    let new_str = match command.group.as_ref().expect("Default value set by clap"){
-        GroupBy::AllTime => format!("GROUP BY song_id ORDER BY {sort_sequence}"),
-        group => format!("GROUP BY song_id, strftime('{}', date) ORDER BY {sort_sequence}", group.format_time())
-    };
+    builder.push(
+        match command.group.as_ref().expect("Default value set by clap") {
+            GroupBy::AllTime => format!("GROUP BY song_id ORDER BY {sort_sequence}"),
+            group => format!(
+                "GROUP BY song_id, strftime('{}', date) ORDER BY {sort_sequence}",
+                group.format_time()
+            ),
+        },
+    );
 
-    query_str += &new_str;
+    // query_str += &new_str;
 
-    let mut query = 
-        sqlx::query_as::<_, DataRow>(&query_str)
-        .fetch(pool);
-    while let Some(entry) = query.next().await{
+    // println!("{}", &query_str);
+    let mut query = sqlx::query_as::<_, DataRow>(builder.sql()).fetch(pool);
+    while let Some(entry) = query.next().await {
         let entry = entry?;
-        if command.json{
-            println!("{}",serde_json::to_string(&entry)?);
+        if command.json {
+            println!("{}", serde_json::to_string(&entry)?);
         } else {
-            println!("{}", entry);
+            println!("{}", &entry);
         }
     }
     Ok(())

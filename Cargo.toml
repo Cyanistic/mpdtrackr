@@ -1,21 +1,19 @@
 [package]
 name = "mpdtrackr"
 authors = ["Cyanism"]
-description = "A simple MPD tracker"
+description = "MPD listening time tracker with versatile stats and sync"
 version = "2.0.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0"
 chrono = { version = "0.4.31", features = ['serde'] }
 clap = { version = "4.4.7", features = ['derive'] }
-dirs = "5.0.1"
-fs2 = "0.4.3"
-futures = "0.3.29"
+dirs = "5.0"
+fs2 = "0.4"
+futures = "0.3"
 mpd = "0.1"
 serde = "1"
 serde_json = "1"
-sqlx = { version = "0.7.2", features = ['json', 'sqlite', 'runtime-tokio', 'chrono'] }
-tokio = { version = "1.33.0", features = ['full'] }
+sqlx = { version = "0.7", features = ['json', 'sqlite', 'runtime-tokio', 'chrono'] }
+tokio = { version = "1.33", features = ['full'] }
