@@ -1,8 +1,8 @@
 use std::{
     cmp::Ordering,
     collections::HashMap,
-    fmt::format,
     fs::{create_dir_all, File},
+    io::{stdout, Write},
     path::PathBuf,
     time::Duration,
 };
@@ -10,9 +10,9 @@ use std::{
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use fs2::FileExt;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use mpd::{Client, State};
-use mpdtrackr::structs::{Args, DataRow, GroupBy, PrintArgs, SubCommand};
+use mpdtrackr::structs::{Args, Config, DataRow, GroupBy, PrintArgs, SubCommand};
 use sqlx::{Execute, QueryBuilder, Sqlite, SqlitePool};
 use tokio::time::Instant;
 
@@ -31,20 +31,28 @@ async fn main() -> Result<()> {
     }
     let args = Args::parse();
     let pool = sqlx::sqlite::SqlitePool::connect_lazy(&format!("sqlite://{}", db_file.display()))?;
+    let config: Config = Config::from_config_file().unwrap_or_else(|e| {
+        eprintln!(
+            "Error parsing config file: '{}'. Falling back to default config",
+            e
+        );
+        Config::new()
+    });
 
     // create sqlite tables
     sqlx::query(
         r#"
 CREATE TABLE IF NOT EXISTS artists (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
- name TEXT NOT NULL
+ name TEXT NOT NULL COLLATE NOCASE
 );
 CREATE TABLE IF NOT EXISTS songs (
  id INTEGER PRIMARY KEY AUTOINCREMENT,
- title TEXT NOT NULL,
+ title TEXT NOT NULL COLLATE NOCASE,
  artist_id INTEGER,
- album TEXT,
- genre TEXT,
+ duration INTEGER,
+ album TEXT COLLATE NOCASE,
+ genre TEXT COLLATE NOCASE,
  FOREIGN KEY (artist_id)
     REFERENCES artists (id) 
     ON UPDATE CASCADE
@@ -66,7 +74,7 @@ CREATE TABLE IF NOT EXISTS listening_times (
 
     match args.subcommand {
         SubCommand::Run => loop {
-            let _ = run(&pool).await.map_err(|e| eprintln!("Error: {}", e));
+            eprintln!("{:?}", run(&pool, &config).await);
             std::thread::sleep(Duration::from_secs(1));
         },
         SubCommand::Print(args) => print(&pool, args).await?,
@@ -76,15 +84,20 @@ CREATE TABLE IF NOT EXISTS listening_times (
     Ok(())
 }
 
-async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
+async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
     let lock_file =
         File::create(std::env::temp_dir().join(concat!(env!("CARGO_PKG_NAME"), ".lock")))?;
-    lock_file.try_lock_exclusive().expect(concat!(
-        "An instance of ",
-        env!("CARGO_PKG_NAME"),
-        " is already running!"
-    ));
-    let mut mpd = Client::connect(format!("127.0.0.1:{}", 6600))?;
+    lock_file
+        .try_lock_exclusive()
+        .map_err(|_| {
+            concat!(
+                "An instance of ",
+                env!("CARGO_PKG_NAME"),
+                " is already running!"
+            )
+        })
+        .unwrap();
+    let mut mpd = Client::connect(format!("{}:{}", config.mpd_url, config.mpd_port))?;
     'outer: loop {
         let outer_song = mpd
             .currentsong()?
@@ -99,6 +112,7 @@ async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
                     .and_then(|x| x.find('-').map(|ind| x[..ind].trim().to_string()))
             }
         };
+        let duration = outer_song.duration.map(|x| x.as_secs() as u32);
         let artist_id = match sqlx::query!("SELECT * FROM artists WHERE name = $1", artist)
             .fetch_optional(pool)
             .await?
@@ -129,12 +143,13 @@ async fn run(pool: &sqlx::SqlitePool) -> Result<()> {
                 let album = tags.get("Album");
                 let genre = tags.get("Genre");
                 sqlx::query!(
-                    "INSERT INTO songs VALUES ($1, $2, $3, $4, $5)",
+                    "INSERT INTO songs VALUES ($1, $2, $3, $4, $5, $6)",
                     None::<u8>,
                     title,
                     artist_id,
                     album,
-                    genre
+                    genre,
+                    duration
                 )
                 .execute(pool)
                 .await?;
@@ -225,14 +240,16 @@ SELECT
     songs.album as album,
     songs.genre as genre,
     songs.id as song_id,
+    songs.duration as duration,
     artists.name as artist,
     artists.id as artist_id,
     MIN(listening_times.date) AS first_listened,
     MAX(listening_times.date) AS last_listened,
     SUM(listening_times.playback_time) as time,
+    SUM(listening_times.playback_time / songs.duration) as times_listened,
 ",
     );
-    let new_str = match command.group.as_ref().expect("Default value set by clap") {
+    match command.group.as_ref().expect("Default value set by clap") {
         GroupBy::AllTime => builder.push(
             "
 listening_times.date as date
@@ -284,9 +301,9 @@ ON artists.id = songs.artist_id
     while let Some(entry) = query.next().await {
         let entry = entry?;
         if command.json {
-            println!("{}", serde_json::to_string(&entry)?);
+            writeln!(stdout(), "{}", serde_json::to_string(&entry)?)?;
         } else {
-            println!("{}", &entry);
+            writeln!(stdout(), "{}", &entry)?;
         }
     }
     Ok(())

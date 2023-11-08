@@ -1,7 +1,8 @@
-use std::fmt::Display;
+use std::{fmt::Display, fs::File, io::Write};
 
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand, ValueEnum};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[derive(Parser, Debug)]
@@ -107,6 +108,45 @@ impl Default for SortBy {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Config {
+    pub mpd_url: Box<str>,
+    pub mpd_port: usize,
+}
+
+impl Config {
+    pub fn from_config_file() -> Result<Self> {
+        let config = dirs::config_dir()
+            .ok_or(anyhow!("No config directory found!"))?
+            .join(env!("CARGO_PKG_NAME"))
+            .join("mpdtrackr-config.json");
+        if !config.is_file() {
+            std::fs::create_dir_all(config.parent().expect("Config file should have parent dir"))?;
+            write!(
+                File::create(&config)?,
+                "{}",
+                serde_json::to_string_pretty(&Config::new())?
+            )?;
+        }
+        Ok(serde_json::from_str::<Config>(&std::fs::read_to_string(
+            config,
+        )?)?)
+    }
+
+    pub fn new() -> Self {
+        Config {
+            mpd_url: "127.0.0.1".into(),
+            mpd_port: 6600,
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(FromRow, Debug, Serialize)]
 pub struct DataRow {
     pub artist_id: u32,
@@ -116,22 +156,34 @@ pub struct DataRow {
     pub album: Option<String>,
     pub genre: Option<String>,
     pub time: u32,
+    pub duration: Option<u32>,
     pub first_listened: chrono::NaiveDate,
     pub last_listened: chrono::NaiveDate,
+    pub times_listened: Option<u32>,
     pub date: String,
 }
 
 impl Display for DataRow {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let time = {
+            format!(
+                "{}h{}m{}s",
+                (self.time / 3600),
+                (self.time % 3600) / 60,
+                self.time % 60
+            )
+        };
         write!(
             f,
-            r#"Artist: "{}", Title: "{}", Time: {}, Album: "{}", Genre: "{}", Date: {}, First Listened: {}, Last Listened: {}"#,
+            r#"Artist: "{}", Title: "{}", Duration: {}, Listening Time: {}, Album: "{}", Genre: "{}", Date: {}, Times Listened: {}, First Listened: {}, Last Listened: {}"#,
             self.artist,
             self.title,
-            self.time,
-            self.album.as_ref().unwrap_or(&String::new()),
-            self.album.as_ref().unwrap_or(&String::new()),
+            self.duration.unwrap_or_default(),
+            time,
+            self.album.as_deref().unwrap_or_default(),
+            self.genre.as_deref().unwrap_or_default(),
             self.date,
+            self.times_listened.unwrap_or_default(),
             self.first_listened,
             self.last_listened
         )
