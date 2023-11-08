@@ -119,7 +119,7 @@ impl Config {
         let config = dirs::config_dir()
             .ok_or(anyhow!("No config directory found!"))?
             .join(env!("CARGO_PKG_NAME"))
-            .join("mpdtrackr-config.json");
+            .join(concat!(env!("CARGO_PKG_NAME"), "-config.json"));
         if !config.is_file() {
             std::fs::create_dir_all(config.parent().expect("Config file should have parent dir"))?;
             write!(

@@ -4,6 +4,6 @@
   ~ (x) Add date ranges such as between x and y or before z
   ~ (x) Add grouping functionality to group time by day, week, month, and year
   ~ (x) Add service files to run on startup
+  ~ (x) Add logging support  
   ~ ( ) Add TUI interface
   ~ ( ) Add sync functionality between devices
-  ~ ( ) Add logging support  
