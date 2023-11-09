@@ -22,7 +22,7 @@ Ensure that you've installed the latest release from the [releases](https://gith
 
 Using mpdtrackr is as simple as running `mpdtrackr run` after starting up your MPD server.
 
-To make sure that you never forget to start up the mpdtrackr daemon before listening to music, you probably want to make sure it runs on startup. There is a minimal `mpdtrackr.service` file provided to let you do that provided, that you use systemd. Otherwise you probably already know how to make a command run on startup using your window-manager configuration or something of the sort.
+To make sure that you never forget to start up the mpdtrackr daemon before listening to music, you probably want to make sure it runs on startup. There is a minimal `mpdtrackr.service` file provided to let you do that, provided that you use systemd. Otherwise you probably already know how to make a command run on startup using your window-manager configuration or something of the sort.
 
 If you want to transfer, modify, or gain a closer look over your stats, the database file containing all of your stats should be in the config directory for your respective OS.
 
