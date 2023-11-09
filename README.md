@@ -22,6 +22,8 @@ Ensure that you've installed the latest release from the [releases](https://gith
 
 Using mpdtrackr is as simple as running `mpdtrackr run` after starting up your MPD server.
 
+In order for mpdtrackr to properly keep track of songs, your music files should have the proper title, artist, genre, etc. tags. Otherwise the application has to attempt to parse the title and artist from the file name, which can be inaccurate, and will not have any data for the album or genre.
+
 To make sure that you never forget to start up the mpdtrackr daemon before listening to music, you probably want to make sure it runs on startup. There is a minimal `mpdtrackr.service` file provided to let you do that, provided that you use systemd. Otherwise you probably already know how to make a command run on startup using your window-manager configuration or something of the sort.
 
 If you want to transfer, modify, or gain a closer look over your stats, the database file containing all of your stats should be in the config directory for your respective OS.

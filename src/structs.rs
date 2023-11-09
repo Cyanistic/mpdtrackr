@@ -16,16 +16,16 @@ pub struct Args {
 pub enum SubCommand {
     /// Run the daemon.
     Run,
-    /// Export data from the database
-    Export {
-        #[arg(short, long)]
-        files: Vec<String>,
-    },
-    /// Import data into the database
-    Import {
-        #[arg(short, long)]
-        files: Vec<String>,
-    },
+    // /// Export data from the database
+    // Export {
+    //     #[arg(short, long)]
+    //     files: Vec<String>,
+    // },
+    // /// Import data into the database
+    // Import {
+    //     #[arg(short, long)]
+    //     files: Vec<String>,
+    // },
     /// Print listening stats to stdout with formatting options
     Print(PrintArgs),
 }
@@ -134,6 +134,7 @@ impl Config {
     }
 
     pub fn new() -> Self {
+        // default settings for most mpd users
         Config {
             mpd_url: "127.0.0.1".into(),
             mpd_port: 6600,

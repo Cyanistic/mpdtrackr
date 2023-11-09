@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS listening_times (
             std::thread::sleep(Duration::from_secs(1));
         },
         SubCommand::Print(args) => print(&pool, args).await?,
-        SubCommand::Export { files } => export(files).await,
-        SubCommand::Import { files } => import(files).await,
+        // SubCommand::Export { files } => export(files).await,
+        // SubCommand::Import { files } => import(files).await,
     }
     Ok(())
 }

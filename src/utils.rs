@@ -17,6 +17,8 @@ use sqlx::{QueryBuilder, Sqlite};
 use tokio::time::Instant;
 
 pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
+    // Use file locks to prevent multiple instances running at once since data will be written
+    // twice to the database (probably not what you want if you're looking for accurate statistics)
     let lock_file =
         File::create(std::env::temp_dir().join(concat!(env!("CARGO_PKG_NAME"), ".lock")))?;
     lock_file
@@ -31,6 +33,7 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
         .unwrap();
     let mut mpd = Client::connect(format!("{}:{}", config.mpd_url, config.mpd_port))?;
 
+    // Infinite loop to update everything once the playing song changes
     'outer: loop {
         let outer_song = mpd
             .currentsong()?
@@ -44,9 +47,11 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
                     "No artist found for '{}'. Attempting to parse artist from file name...",
                     path.display()
                 );
+                // The first part of the file name before the " - " should be the artist name
+                // so attempt to use that as the artist name
                 path.file_stem()
                     .and_then(|x| x.to_str())
-                    .and_then(|x| x.find('-').map(|ind| x[..ind].trim().to_string()))
+                    .and_then(|x| x.find(" - ").map(|ind| x[..ind].trim().to_string()))
             }
         };
         let duration = outer_song.duration.map(|x| x.as_secs() as u32);
@@ -74,16 +79,20 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
                     "No title found for '{}'. Attempting to parse title from file name...",
                     path.display()
                 );
+                // The last part of the file name after the '-' should be the song title
+                // so attempt to use that as the title
                 path.file_stem()
                     .and_then(|x| x.to_str())
-                    .and_then(|x| x.find('-').map(|ind| x[ind + 1..].trim().to_string()))
+                    .and_then(|x| x.find(" - ").map(|ind| x[ind + 1..].trim().to_string()))
             }
         };
+
         info!(
             "Tracking stats for: '{} - {}'",
             artist.as_deref().unwrap_or_default(),
             title.as_deref().unwrap_or_default()
         );
+
         let song_id = match sqlx::query!("SELECT id, title FROM songs WHERE title = $1", title)
             .fetch_optional(pool)
             .await?
@@ -110,6 +119,7 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
                 continue;
             }
         };
+
         let date = chrono::Local::now().date_naive();
         if sqlx::query!(
             "SELECT * from listening_times where date = $1 and song_id = $2",
@@ -140,8 +150,11 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
         'inner: loop {
             let now = Instant::now();
             match mpd.status()?.state {
+                // Pause the tracker until music is playing
                 State::Pause | State::Stop => tokio::time::sleep(Duration::from_millis(10)).await,
                 State::Play => {
+                    // Switch songs if the currently playing song is different from the one we have
+                    // stats on
                     let inner_song = match mpd.currentsong()? {
                         Some(k) => k,
                         None => continue 'inner,
@@ -163,7 +176,8 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
                             Ordering::Equal => (),
                         }
 
-                        // Checked subtraction since it might panic in cases where looping
+                        // Sleep to prevent wasted resources and utilize checked
+                        // subtraction since it might panic in cases where looping
                         // again takes longer than one second
                         tokio::time::sleep(
                             Duration::from_secs(1)
@@ -181,6 +195,7 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
 }
 
 pub async fn print(pool: &sqlx::SqlitePool, command: PrintArgs) -> Result<()> {
+    // Convert the Vec of enums to comma separated strings to feed them into the sql query
     let sort_sequence = command
         .sort
         .iter()
@@ -227,6 +242,8 @@ ON artists.id = songs.artist_id
     };
     // query_str += &new_str;
 
+    // Use one match statement to determine which where clause to use since only one can be used at
+    // a time
     builder.push(match (command.after, command.before, command.between) {
         (Some(after), _, _) => format!("WHERE date > '{}' ", after),
         (_, Some(before), _) => format!("WHERE date < '{}' ", before),
@@ -251,6 +268,8 @@ ON artists.id = songs.artist_id
     // query_str += &new_str;
 
     // println!("{}", &query_str);
+
+    // Fetch each entry from the database using the provided query and print to stdout
     let mut query = sqlx::query_as::<_, DataRow>(builder.sql()).fetch(pool);
     while let Some(entry) = query.next().await {
         let entry = entry?;
@@ -263,10 +282,10 @@ ON artists.id = songs.artist_id
     Ok(())
 }
 
-pub async fn import(files: Vec<String>) {
+pub async fn import(_files: Vec<String>) {
     todo!()
 }
 
-pub async fn export(files: Vec<String>) {
+pub async fn export(_files: Vec<String>) {
     todo!()
 }
