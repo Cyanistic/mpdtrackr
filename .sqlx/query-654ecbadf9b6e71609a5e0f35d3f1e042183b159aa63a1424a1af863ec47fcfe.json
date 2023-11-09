@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT * from listening_times where date = $1 and song_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Int64"
+      },
+      {
+        "name": "date",
+        "ordinal": 1,
+        "type_info": "Date"
+      },
+      {
+        "name": "song_id",
+        "ordinal": 2,
+        "type_info": "Int64"
+      },
+      {
+        "name": "playback_time",
+        "ordinal": 3,
+        "type_info": "Int64"
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "654ecbadf9b6e71609a5e0f35d3f1e042183b159aa63a1424a1af863ec47fcfe"
+}

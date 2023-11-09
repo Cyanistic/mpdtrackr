@@ -1,0 +1,62 @@
+name: Build
+on:
+  release:
+    types: [created, edited]
+  workflow_dispatch:
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            rust_target: x86_64-unknown-linux-gnu
+          - platform: macos-latest
+            rust_target: x86_64-apple-darwin
+          - platform: macos-latest
+            rust_target: aarch64-apple-darwin
+          - platform: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Install Rust (Stable)
+        run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - name: Build App (windows)
+        run: |
+          cargo build --release
+          mv ./target/release/mpdtrackr.exe "./target/release/mpdtrackr-${{ matrix.rust_target }}.exe"
+        if: matrix.platform == 'windows-latest'
+        continue-on-error: true
+      - name: Build App (unix)
+        run: |
+          cargo build --release
+          mv ./target/release/mpdtrackr "./target/release/mpdtrackr-${{ matrix.rust_target }}"
+        if: matrix.platform != 'windows-latest'
+        continue-on-error: true
+      - name: Upload Release Assets (windows)
+        id: upload-release-asset-windows
+        uses: softprops/action-gh-release@v1
+        if: matrix.platform == 'windows-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+          draft: false
+          prerelease: false
+          files: |
+            ./target/release/mpdtrackr*.exe
+      - name: Upload Release Assets (unix)
+        id: upload-release-unix
+        uses: softprops/action-gh-release@v1
+        if: matrix.platform != 'windows-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
+          draft: false
+          prerelease: false
+          files: |
+            ./target/release/mpdtrackr-${{ matrix.rust_target }}
