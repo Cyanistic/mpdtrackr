@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE listening_times SET playback_time = playback_time + 1 WHERE song_id = $1 AND date = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "295ea13949f93d749cd561e385100f21359fddb293785c2bf7776538a4d9f45b"
+}
