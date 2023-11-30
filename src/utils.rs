@@ -2,17 +2,17 @@ use std::{
     cmp::Ordering,
     collections::HashMap,
     fs::File,
-    io::{stdout, Write},
     path::PathBuf,
     time::Duration,
 };
 
-use crate::structs::{Config, DataRow, GroupBy, PrintArgs};
+use crate::structs::{Config, DataRow, FieldGroup, NewlineFormatter, PrintArgs, TimeGroup};
 use anyhow::{anyhow, Result};
 use fs2::FileExt;
-use futures::StreamExt;
 use log::{info, warn};
 use mpd::{Client, State};
+use serde::Serialize;
+use serde_json::Serializer;
 use sqlx::{QueryBuilder, Sqlite};
 use tokio::time::Instant;
 
@@ -195,7 +195,7 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
 }
 
 pub async fn print(pool: &sqlx::SqlitePool, command: PrintArgs) -> Result<()> {
-    // Convert the Vec of enums to comma separated strings to feed them into the sql query
+    // Convert the Vec of enums into comma separated strings to feed them into the sql query
     let sort_sequence = command
         .sort
         .iter()
@@ -218,8 +218,12 @@ SELECT
     SUM(listening_times.playback_time / songs.duration) as times_listened,
 ",
     );
-    match command.group.as_ref().expect("Default value set by clap") {
-        GroupBy::AllTime => builder.push(
+    match command
+        .time_group
+        .as_ref()
+        .expect("Default value set by clap")
+    {
+        TimeGroup::AllTime => builder.push(
             "
 listening_times.date as date
 FROM songs
@@ -240,7 +244,6 @@ ON artists.id = songs.artist_id
 "
         )),
     };
-    // query_str += &new_str;
 
     // Use one match statement to determine which where clause to use since only one can be used at
     // a time
@@ -253,31 +256,91 @@ ON artists.id = songs.artist_id
         (None, None, None) => String::new(),
     });
 
-    // query_str += &range;
+    builder.push(format!(
+        "GROUP BY {} ",
+        command
+            .field_group
+            .as_ref()
+            .expect("Default value set by clap")
+    ));
 
-    builder.push(
-        match command.group.as_ref().expect("Default value set by clap") {
-            GroupBy::AllTime => format!("GROUP BY song_id ORDER BY {sort_sequence}"),
-            group => format!(
-                "GROUP BY song_id, strftime('{}', date) ORDER BY {sort_sequence}",
-                group.format_time()
-            ),
-        },
-    );
+    match command
+        .time_group
+        .as_ref()
+        .expect("Default value set by clap")
+    {
+        TimeGroup::AllTime => (),
+        group => {
+            builder.push(format!(", strftime('{}', date)", group.format_time()));
+        }
+    }
 
-    // query_str += &new_str;
-
-    // println!("{}", &query_str);
+    builder.push(format!("ORDER BY {sort_sequence}"));
 
     // Fetch each entry from the database using the provided query and print to stdout
-    let mut query = sqlx::query_as::<_, DataRow>(builder.sql()).fetch(pool);
-    while let Some(entry) = query.next().await {
-        let entry = entry?;
-        if command.json {
-            writeln!(stdout(), "{}", serde_json::to_string(&entry)?)?;
-        } else {
-            writeln!(stdout(), "{}", &entry)?;
+    let mut query = sqlx::query_as::<_, DataRow>(builder.sql())
+        .fetch_all(pool)
+        .await?;
+
+    // Hide fields that don't make sense for specific groupings
+    // Had to resort to this since the alternative would be to make 4 separate structs
+    // with slightly different fields
+    match command
+        .field_group
+        .as_ref()
+        .expect("Default value set by clap")
+    {
+        FieldGroup::Album => {
+            for entry in query.iter_mut() {
+                entry.duration = None;
+                entry.title = None;
+                entry.song_id = None;
+                entry.times_listened = None;
+            }
         }
+        FieldGroup::Artist => {
+            for entry in query.iter_mut() {
+                entry.duration = None;
+                entry.title = None;
+                entry.song_id = None;
+                entry.album = None;
+                entry.genre = None;
+                entry.times_listened = None;
+            }
+        }
+        FieldGroup::Genre => {
+            for entry in query.iter_mut() {
+                entry.duration = None;
+                entry.title = None;
+                entry.song_id = None;
+                entry.album = None;
+                entry.artist = None;
+                entry.artist_id = None;
+                entry.times_listened = None;
+            }
+        }
+        FieldGroup::Title => (),
+    }
+
+    if command.json {
+        // This is safe because I copied most of the logic from serde_json
+        println!("{}", unsafe {
+            String::from_utf8_unchecked({
+                let mut buf = Vec::with_capacity(128);
+                let mut ser = Serializer::with_formatter(&mut buf, NewlineFormatter);
+                query.serialize(&mut ser)?;
+                buf
+            })
+        });
+    } else {
+        print!(
+            "{}",
+            query.iter().fold(String::new(), |acc, x| {
+                let mut acc = acc + &x.to_string();
+                acc.push('\n');
+                acc
+            })
+        );
     }
     Ok(())
 }

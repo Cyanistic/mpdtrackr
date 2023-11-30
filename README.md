@@ -10,11 +10,11 @@
 
 ## Features
 
-- Keeps track of which songs are playing, how long they have been playing each day, and maintains historical playtime data to view trends over time.
-- Prints database of stats to stdout
-  - Stats can be grouped by time periods such as day, week, month, year, and all-time
-  - Stats can also be sorted in by multiple parameters
-- Easily transfer stats across devices using software like [syncthing](https://syncthing.net/) due to the fact that stats are saved in a SQLite database
+- Keeps track of which songs are playing, how long they have been playing each day, and maintains historical playtime data to view trends over time
+- Displays listening statistics directly in the terminal for easy access and analysis
+  - Allows users to group stats by time periods (day, week, month, year, all-time) and different fields (artist, album, title, genre)
+  - Permits sorting of statistics based on multiple criteria for in-depth analysis
+- Facilitates hassle-free transfer of stats across devices using an SQLite database, compatible with tools like [syncthing](https://syncthing.net/)
 
 ## Getting Started
 
@@ -28,11 +28,11 @@ To make sure that you never forget to start up the mpdtrackr daemon before liste
 
 If you want to transfer, modify, or gain a closer look over your stats, the database file containing all of your stats should be in the config directory for your respective OS.
 
-| Operating System | Path                                                  | Example                                            |
-| ---------------- | ----------------------------------------------------- | -------------------------------------------------- |
-| Windows          | {FOLDERID_RoamingAppData}\mpdtrackr                   | C:\Users\Alice\AppData\Roaming\mpdtrackr           |
-| macOS            | $HOME/Library/Application Support/mpdtrackr           | /Users/Alice/Library/Application Support/mpdtrackr |
-| Linux            | $XDG_CONFIG_HOME/mpdtrackr or $HOME/.config/mpdtrackr | /home/alice/.config/mpdtrackr                      |
+| Platform | Value                                              | Example                                            |
+| -------- | -------------------------------------------------- | -------------------------------------------------- |
+| Linux    | `$XDG_DATA_HOME` or `$HOME`/.local/share/mpdtrackr | /home/alice/.local/share/mpdtrackr                 |
+| macOS    | `$HOME`/Library/Application Support/mpdtrackr      | /Users/Alice/Library/Application Support/mpdtrackr |
+| Windows  | `{FOLDERID_RoamingAppData}`\mpdtrackr              | C:\Users\Alice\AppData\Roaming\mpdtrackr           |
 
 ## Usage
 
