@@ -1,8 +1,13 @@
-use std::{fmt::Display, fs::File, io::Write};
+use std::{
+    fmt::Display,
+    fs::File,
+    io::{self, Write},
+};
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
+use serde_json::ser::Formatter;
 use sqlx::FromRow;
 
 #[derive(Parser, Debug)]
@@ -31,12 +36,20 @@ pub enum SubCommand {
 }
 
 #[derive(Debug, ValueEnum, Clone)]
-pub enum GroupBy {
+pub enum TimeGroup {
     Day,
     Week,
     Month,
     Year,
     AllTime,
+}
+
+#[derive(Debug, ValueEnum, Clone)]
+pub enum FieldGroup {
+    Album,
+    Artist,
+    Genre,
+    Title,
 }
 
 #[derive(Debug, ValueEnum, Clone)]
@@ -78,8 +91,11 @@ pub struct PrintArgs {
     #[arg(short = 'a', long, group = "range", value_name("DATE"))]
     pub after: Option<chrono::NaiveDate>,
     /// Group listening times by given time frame
-    #[arg(short, long, default_value = "all-time")]
-    pub group: Option<GroupBy>,
+    #[arg(short = 'g', long, default_value = "all-time")]
+    pub time_group: Option<TimeGroup>,
+    /// Group listening times given field
+    #[arg(short = 'G', long, default_value = "title")]
+    pub field_group: Option<FieldGroup>,
     /// Sort entries by given option
     #[arg(short, long, default_value = "time")]
     pub sort: Vec<SortBy>,
@@ -99,6 +115,27 @@ impl Display for SortBy {
                 SortBy::Recent => "listening_times.date",
             }
         )
+    }
+}
+
+impl Display for FieldGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                FieldGroup::Album => "songs.album",
+                FieldGroup::Artist => "artists.name",
+                FieldGroup::Title => "songs.title",
+                FieldGroup::Genre => "songs.genre",
+            }
+        )
+    }
+}
+
+impl Default for FieldGroup {
+    fn default() -> Self {
+        Self::Title
     }
 }
 
@@ -150,16 +187,24 @@ impl Default for Config {
 
 #[derive(FromRow, Debug, Serialize)]
 pub struct DataRow {
-    pub artist_id: u32,
-    pub song_id: u32,
-    pub title: String,
-    pub artist: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub song_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub album: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub genre: Option<String>,
     pub time: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<u32>,
     pub first_listened: chrono::NaiveDate,
     pub last_listened: chrono::NaiveDate,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub times_listened: Option<u32>,
     pub date: String,
 }
@@ -174,54 +219,101 @@ impl Display for DataRow {
                 self.time % 60
             )
         };
+
+        // Don't display nullable fields if they are null
         write!(
             f,
-            r#"Artist: "{}", Title: "{}", Duration: {}, Listening Time: {}, Album: "{}", Genre: "{}", Date: {}, Times Listened: {}, First Listened: {}, Last Listened: {}"#,
-            self.artist,
-            self.title,
-            self.duration.unwrap_or_default(),
+            r#"{}{}{}{}{}Listening Time: {}, Date: {}, {}First Listened: {}, Last Listened: {}"#,
+            match &self.artist {
+                Some(k) => format!(r#"Artist: "{}", "#, k),
+                None => String::new(),
+            },
+            match &self.title {
+                Some(k) => format!(r#"Title: "{}", "#, k),
+                None => String::new(),
+            },
+            match &self.duration {
+                Some(k) => format!(r#"Duration: "{}", "#, k),
+                None => String::new(),
+            },
+            match &self.album {
+                Some(k) => format!(r#"Album: "{}", "#, k),
+                None => String::new(),
+            },
+            match &self.genre {
+                Some(k) => format!(r#"Genre: "{}", "#, k),
+                None => String::new(),
+            },
             time,
-            self.album.as_deref().unwrap_or_default(),
-            self.genre.as_deref().unwrap_or_default(),
             self.date,
-            self.times_listened.unwrap_or_default(),
+            match &self.times_listened {
+                Some(k) => format!(r#"Times Listened: {}, "#, k),
+                None => String::new(),
+            },
             self.first_listened,
             self.last_listened
         )
     }
 }
 
-impl GroupBy {
+impl TimeGroup {
     pub fn format_time(&self) -> String {
         match self {
-            GroupBy::Day => "%Y-%m-%d",
-            GroupBy::Week => "%W",
-            GroupBy::Month => "%m",
-            GroupBy::Year => "%Y",
-            GroupBy::AllTime => unreachable!(),
+            TimeGroup::Day => "%Y-%m-%d",
+            TimeGroup::Week => "%W",
+            TimeGroup::Month => "%m",
+            TimeGroup::Year => "%Y",
+            TimeGroup::AllTime => unreachable!(),
         }
         .to_string()
     }
 }
 
-impl Display for GroupBy {
+impl Display for TimeGroup {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{}",
             match self {
-                GroupBy::Day => "%Y-%m-%d",
-                GroupBy::Week => "%Y-%W",
-                GroupBy::Month => "%Y-%m",
-                GroupBy::Year => "%Y",
-                GroupBy::AllTime => unreachable!(),
+                TimeGroup::Day => "%Y-%m-%d",
+                TimeGroup::Week => "%Y-%W",
+                TimeGroup::Month => "%Y-%m",
+                TimeGroup::Year => "%Y",
+                TimeGroup::AllTime => unreachable!(),
             }
         )
     }
 }
 
-impl Default for GroupBy {
+impl Default for TimeGroup {
     fn default() -> Self {
         Self::AllTime
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct NewlineFormatter;
+
+impl Formatter for NewlineFormatter {
+    /// Called before every array value.  Writes a `,` if needed to
+    /// the specified writer.
+    #[inline]
+    fn begin_array_value<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
+    where
+        W: ?Sized + io::Write,
+    {
+        if first {
+            writer.write_all(b"\n")
+        } else {
+            writer.write_all(b",\n")
+        }
+    }
+
+    #[inline]
+    fn end_array<W>(&mut self, writer: &mut W) -> io::Result<()>
+    where
+        W: ?Sized + io::Write,
+    {
+        writer.write_all(b"\n]")
     }
 }
