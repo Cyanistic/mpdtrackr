@@ -38,7 +38,7 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
         let outer_song = mpd
             .currentsong()?
             .ok_or(anyhow!("Error: no song playing"))?;
-        let tags = HashMap::<String, String>::from_iter(outer_song.tags.clone());
+        let tags = HashMap::<String, String>::from_iter(outer_song.tags);
         let artist = match outer_song.artist {
             Some(k) => Some(k),
             None => {
@@ -71,8 +71,8 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
                 continue;
             }
         };
-        let title = match outer_song.title.clone() {
-            Some(k) => Some(k),
+        let title: Option<Box<str>> = match &outer_song.title {
+            Some(k) => Some(k[..].into()),
             None => {
                 let path = PathBuf::from(&outer_song.file);
                 warn!(
@@ -83,15 +83,10 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
                 // so attempt to use that as the title
                 path.file_stem()
                     .and_then(|x| x.to_str())
-                    .and_then(|x| x.find(" - ").map(|ind| x[ind + 1..].trim().to_string()))
+                    .and_then(|x| x.find(" - ").map(|ind| x[ind + 3..].trim().into()))
             }
         };
 
-        info!(
-            "Tracking stats for: '{} - {}'",
-            artist.as_deref().unwrap_or_default(),
-            title.as_deref().unwrap_or_default()
-        );
 
         let song_id = match sqlx::query!("SELECT id, title FROM songs WHERE title = $1", title)
             .fetch_optional(pool)
@@ -119,6 +114,12 @@ pub async fn run(pool: &sqlx::SqlitePool, config: &Config) -> Result<()> {
                 continue;
             }
         };
+
+        info!(
+            "Tracking stats for: '{} - {}'",
+            artist.as_deref().unwrap_or_default(),
+            title.as_deref().unwrap_or_default()
+        );
 
         let date = chrono::Local::now().date_naive();
         if sqlx::query!(
@@ -215,7 +216,7 @@ SELECT
     MIN(listening_times.date) AS first_listened,
     MAX(listening_times.date) AS last_listened,
     SUM(listening_times.playback_time) as time,
-    SUM(listening_times.playback_time / songs.duration) as times_listened,
+    SUM(listening_times.playback_time) / songs.duration as times_listened,
 ",
     );
     match command

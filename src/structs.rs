@@ -233,7 +233,7 @@ impl Display for DataRow {
                 None => String::new(),
             },
             match &self.duration {
-                Some(k) => format!(r#"Duration: "{}", "#, k),
+                Some(k) => format!(r#"Duration: {}, "#, k),
                 None => String::new(),
             },
             match &self.album {
@@ -295,8 +295,6 @@ impl Default for TimeGroup {
 pub struct NewlineFormatter;
 
 impl Formatter for NewlineFormatter {
-    /// Called before every array value.  Writes a `,` if needed to
-    /// the specified writer.
     #[inline]
     fn begin_array_value<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
     where
