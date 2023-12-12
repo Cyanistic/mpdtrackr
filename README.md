@@ -3,6 +3,7 @@
 **A CLI [MPD](https://www.musicpd.org/) listening time tracker with versatile stats.**
 
 [Features](#features) •
+[Getting Started](#installation) •
 [Getting Started](#getting-started) •
 [Usage](#usage)
 
@@ -16,9 +17,45 @@
   - Permits sorting of statistics based on multiple criteria for in-depth analysis
 - Facilitates hassle-free transfer of stats across devices using an SQLite database, compatible with tools like [syncthing](https://syncthing.net/)
 
+## installation
+
+Note: I have only tested mpdtrackr on Linux.
+
+<details>
+   <summary>Windows</summary>
+
+> Download the latest release of mpdtrackr from the releases page.
+
+</details>
+
+<details>
+   <summary>macOS/Linux</summary>
+
+> You can use the [install.sh](https://github.com/Cyanistic/mpdtrackr/blob/master/install.sh) script to install and download the [latest release](https://github.com/Cyanistic/mpdtrackr/releases/latest) of mpdtrackr and enable the systemd service.
+>
+> The following command downloads and executes the script:
+>
+> ```
+> curl --proto '=https' -sSf 'https://raw.githubusercontent.com/Cyanistic/mpdtrackr/master/install.sh' | sh
+> ```
+>
+> If you are unhappy with mpdtrackr you can also uninstall it using a similar command
+>
+> ```
+> curl --proto '=https' -sSf 'https://raw.githubusercontent.com/Cyanistic/mpdtrackr/master/install.sh' | sh -s uninstall
+> ```
+>
+> If you prefer to avoid using scripts you can do the following
+>
+> 1. Download the latest release for your specific OS from the releases page
+> 2. Make the file executable using `chmod +x`
+> 3. Move the file into `/usr/bin`
+
+</details>
+
 ## Getting Started
 
-Ensure that you've installed the latest release from the [releases](https://github.com/Cyanistic/mpdtrackr/releases/latest) page.
+Ensure that you've installed the latest release from the [releases](https://github.com/Cyanistic/mpdtrackr/releases/latest) page and followed the [installation guide](#installation).
 
 Using mpdtrackr is as simple as running `mpdtrackr run` after starting up your MPD server.
 
