@@ -19,7 +19,9 @@
 
 ## installation
 
+<div align="center">
 Note: I have only tested mpdtrackr on Linux.
+</div>
 
 <details>
    <summary>Windows</summary>
@@ -45,7 +47,7 @@ Note: I have only tested mpdtrackr on Linux.
 > curl --proto '=https' -sSf 'https://raw.githubusercontent.com/Cyanistic/mpdtrackr/master/install.sh' | sh -s uninstall
 > ```
 >
-> If you prefer to avoid using scripts you can do the following
+> If you prefer to avoid using scripts you can do the following:
 >
 > 1. Download the latest release for your specific OS from the releases page
 > 2. Make the file executable using `chmod +x`
@@ -74,7 +76,7 @@ If you want to transfer, modify, or gain a closer look over your stats, the data
 ## Usage
 
 ```
-MPD listening time tracker with versatile stats and sync
+MPD listening time tracker with versatile stats
 
 Usage: mpdtrackr <COMMAND>
 
